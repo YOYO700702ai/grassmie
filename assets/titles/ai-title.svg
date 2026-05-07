@@ -1,0 +1,69 @@
+<svg width="980" height="260" viewBox="0 0 980 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">這是 AI 做的密室</title>
+  <desc id="desc">為票券版面設計的這是 AI 做的密室主題字標</desc>
+  <defs>
+    <filter id="press" x="-4%" y="-12%" width="108%" height="130%">
+      <feDropShadow dx="2" dy="2" stdDeviation="0" flood-color="#eadfbe" flood-opacity=".28"/>
+      <feDropShadow dx="0" dy="5" stdDeviation="3" flood-color="#21190f" flood-opacity=".12"/>
+    </filter>
+    <pattern id="tinyGrid" width="18" height="18" patternUnits="userSpaceOnUse">
+      <path d="M18 0H0V18" fill="none" stroke="#21190f" stroke-opacity=".12" stroke-width="1"/>
+      <circle cx="4" cy="4" r="1" fill="#21190f" fill-opacity=".16"/>
+    </pattern>
+  </defs>
+
+  <rect x="0" y="0" width="980" height="260" fill="none"/>
+
+  <g opacity=".32">
+    <path d="M18 214C144 197 253 209 379 218C517 228 672 209 934 218" fill="none" stroke="#21190f" stroke-width="3" stroke-linecap="round"/>
+    <path d="M558 72H898M558 102H858M558 132H930" stroke="#21190f" stroke-width="2"/>
+    <path d="M628 48V152M712 48V170M806 48V150" stroke="#21190f" stroke-width="2"/>
+  </g>
+
+  <g transform="translate(22 34)" filter="url(#press)">
+    <text x="0" y="68"
+      font-family="'Noto Serif TC','Noto Sans TC',serif"
+      font-size="72"
+      font-weight="900"
+      letter-spacing="2"
+      fill="#21190f">這是</text>
+    <path d="M5 86H145" stroke="#21190f" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <g transform="translate(186 16)" filter="url(#press)">
+    <path d="M34 165L96 36H138L200 165H151L141 140H91L81 165H34Z" fill="none" stroke="#21190f" stroke-width="13" stroke-linejoin="round"/>
+    <path d="M105 101H128L117 72L105 101Z" fill="#21190f"/>
+    <path d="M238 36H286V165H238V36Z" fill="none" stroke="#21190f" stroke-width="13" stroke-linejoin="round"/>
+    <path d="M226 28H298M226 173H298" stroke="#21190f" stroke-width="9" stroke-linecap="round"/>
+    <path d="M118 21V0M118 197V176M262 21V0M262 197V176M15 103H0M320 103H304" stroke="#21190f" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="118" cy="0" r="5" fill="#21190f"/>
+    <circle cx="262" cy="0" r="5" fill="#21190f"/>
+    <circle cx="0" cy="103" r="5" fill="#21190f"/>
+    <circle cx="320" cy="103" r="5" fill="#21190f"/>
+  </g>
+
+  <g transform="translate(528 34)" filter="url(#press)">
+    <text x="0" y="62"
+      font-family="'Noto Serif TC','Noto Sans TC',serif"
+      font-size="68"
+      font-weight="900"
+      letter-spacing="2"
+      fill="#21190f">做的</text>
+    <text x="0" y="146"
+      font-family="'Noto Serif TC','Noto Sans TC',serif"
+      font-size="84"
+      font-weight="900"
+      letter-spacing="5"
+      fill="#21190f">密室</text>
+  </g>
+
+  <g transform="translate(74 168)" opacity=".7">
+    <rect x="0" y="0" width="112" height="34" rx="0" fill="none" stroke="#21190f" stroke-width="2"/>
+    <text x="56" y="23" text-anchor="middle" font-family="'Noto Sans TC',sans-serif" font-size="14" font-weight="900" letter-spacing="3" fill="#21190f">AUTO ROOM</text>
+  </g>
+
+  <g transform="translate(840 144)" opacity=".78">
+    <rect x="0" y="0" width="86" height="74" fill="url(#tinyGrid)" stroke="#21190f" stroke-width="2"/>
+    <path d="M14 22H58M14 38H72M14 54H48" stroke="#21190f" stroke-width="3"/>
+  </g>
+</svg>

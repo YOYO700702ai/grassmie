@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# 部署輸出/私人資訊
+deployment.json
+
+# 編輯器
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 暫存
+*.log
+*.tmp
