@@ -587,6 +587,21 @@ p {
   background: rgba(231, 216, 187, 0.07);
 }
 
+.socials svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.socials a[aria-label="Facebook"] svg {
+  fill: var(--gold);
+  stroke: none;
+}
+
 .socials a:hover {
   background: rgba(199, 150, 69, 0.18);
 }
