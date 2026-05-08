@@ -88,6 +88,8 @@ function doGet(e) {
   try {
     const action = (e.parameter.action || '').toLowerCase();
     if (action === 'slots') return getTakenSlots_(e.parameter);
+    if (action === 'list_bookings') return listBookings_(e.parameter);
+    if (action === 'get_booking') return getBooking_(e.parameter);
     if (action === 'ping') return jsonOut_({ ok: true });
     return jsonOut_({ ok: false, error: 'unknown action' });
   } catch (err) {
@@ -100,6 +102,10 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents || '{}');
     const action = (body.action || '').toLowerCase();
     if (action === 'book') return createBooking_(body);
+    if (action === 'cancel_booking') return cancelBooking_(body);
+    if (action === 'update_booking') return updateBooking_(body);
+    if (action === 'close_slot') return closeSlot_(body);
+    if (action === 'reopen_slot') return reopenSlot_(body);
     return jsonOut_({ ok: false, error: 'unknown action' });
   } catch (err) {
     return jsonOut_({ ok: false, error: String(err) });
@@ -530,4 +536,250 @@ function syncAllToOnsite() {
   const startRow = sheet.getLastRow() + 1;
   sheet.getRange(startRow, 1, toAppend.length, 10).setValues(toAppend);
   Logger.log('已同步 ' + toAppend.length + ' 筆到現場收款表');
+}
+
+
+/* ============================================================
+ * Bot 操作用 API (list / get / cancel / update / close / reopen)
+ * 全部回 { ok: true, data?: ... } 或 { ok: false, error: "..." }
+ * ============================================================ */
+
+function findRowById_(id) {
+  const sheet = ensureSheet_();
+  const last = sheet.getLastRow();
+  if (last < 2) return null;
+  const ids = sheet.getRange(2, 1, last - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === String(id)) {
+      return { rowIndex: i + 2, sheet: sheet };
+    }
+  }
+  return null;
+}
+
+function readRow_(sheet, rowIndex) {
+  const v = sheet.getRange(rowIndex, 1, 1, HEADERS.length).getValues()[0];
+  return {
+    id: String(v[0]),
+    created_at: v[1] instanceof Date ? v[1].toISOString() : String(v[1] || ''),
+    theme_id: String(v[2]),
+    theme_title: String(v[3]),
+    date: formatDate_(v[4]),
+    time: formatTime_(v[5]),
+    people: Number(v[6]) || 0,
+    name: String(v[7] || ''),
+    phone: String(v[8] || ''),
+    email: String(v[9] || ''),
+    note: String(v[10] || ''),
+    status: String(v[11] || 'confirmed')
+  };
+}
+
+function listBookings_(params) {
+  const date = (params.date || '').toString().trim();
+  const phone = (params.phone || '').toString().trim();
+  const name = (params.name || '').toString().trim();
+  const themeId = (params.theme_id || '').toString().trim();
+  const status = (params.status || 'confirmed').toString().trim();
+
+  const sheet = ensureSheet_();
+  const last = sheet.getLastRow();
+  if (last < 2) return jsonOut_({ ok: true, data: [], total: 0 });
+
+  const values = sheet.getRange(2, 1, last - 1, HEADERS.length).getValues();
+  const results = [];
+  for (const row of values) {
+    const b = {
+      id: String(row[0]),
+      theme_id: String(row[2]),
+      theme_title: String(row[3]),
+      date: formatDate_(row[4]),
+      time: formatTime_(row[5]),
+      people: Number(row[6]) || 0,
+      name: String(row[7] || ''),
+      phone: String(row[8] || ''),
+      status: String(row[11] || 'confirmed')
+    };
+    if (status !== 'all' && b.status !== status) continue;
+    if (date && b.date !== date) continue;
+    if (themeId && b.theme_id !== themeId) continue;
+    if (phone && b.phone.indexOf(phone) === -1) continue;
+    if (name && b.name.indexOf(name) === -1) continue;
+    results.push(b);
+  }
+  results.sort(function (a, b) {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    return a.time < b.time ? -1 : 1;
+  });
+
+  const truncated = results.length > 50;
+  return jsonOut_({
+    ok: true,
+    data: truncated ? results.slice(0, 50) : results,
+    total: results.length,
+    truncated: truncated
+  });
+}
+
+function getBooking_(params) {
+  const id = (params.id || '').toString().trim();
+  if (!id) return jsonOut_({ ok: false, error: 'id required' });
+  const found = findRowById_(id);
+  if (!found) return jsonOut_({ ok: false, error: '找不到預約: ' + id });
+  return jsonOut_({ ok: true, data: readRow_(found.sheet, found.rowIndex) });
+}
+
+function cancelBooking_(body) {
+  const id = (body.id || '').toString().trim();
+  if (!id) return jsonOut_({ ok: false, error: 'id required' });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(8000);
+  try {
+    const found = findRowById_(id);
+    if (!found) return jsonOut_({ ok: false, error: '找不到預約: ' + id });
+    const before = readRow_(found.sheet, found.rowIndex);
+    if (before.status === 'cancelled') {
+      return jsonOut_({ ok: true, data: before, changed: false, note: '本來就是 cancelled' });
+    }
+    found.sheet.getRange(found.rowIndex, 12).setValue('cancelled');
+    try { rebuildMonthSheet_(before.date.substring(0, 7)); } catch (e) {}
+    const after = readRow_(found.sheet, found.rowIndex);
+    return jsonOut_({ ok: true, data: after, changed: true });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateBooking_(body) {
+  const id = (body.id || '').toString().trim();
+  if (!id) return jsonOut_({ ok: false, error: 'id required' });
+  if (body.date || body.time || body.theme_id) {
+    return jsonOut_({ ok: false, error: '不支援改日期/時間/主題,請先 cancel_booking 再 book 一筆新的' });
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(8000);
+  try {
+    const found = findRowById_(id);
+    if (!found) return jsonOut_({ ok: false, error: '找不到預約: ' + id });
+    const before = readRow_(found.sheet, found.rowIndex);
+    const updates = [];
+    const sheet = found.sheet;
+    const r = found.rowIndex;
+    if (body.people !== undefined && body.people !== null && body.people !== '') {
+      sheet.getRange(r, 7).setValue(Number(body.people));
+      updates.push('people');
+    }
+    if (body.name !== undefined && body.name !== null) {
+      sheet.getRange(r, 8).setValue(String(body.name));
+      updates.push('name');
+    }
+    if (body.phone !== undefined && body.phone !== null) {
+      sheet.getRange(r, 9).setValue(String(body.phone));
+      updates.push('phone');
+    }
+    if (body.email !== undefined && body.email !== null) {
+      sheet.getRange(r, 10).setValue(String(body.email));
+      updates.push('email');
+    }
+    if (body.note !== undefined && body.note !== null) {
+      sheet.getRange(r, 11).setValue(String(body.note));
+      updates.push('note');
+    }
+    if (updates.length === 0) {
+      return jsonOut_({ ok: true, data: before, changed: false, note: '沒提供要更新的欄位' });
+    }
+    try { rebuildMonthSheet_(before.date.substring(0, 7)); } catch (e) {}
+    const after = readRow_(sheet, r);
+    return jsonOut_({ ok: true, data: after, changed: true, updated: updates });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function closeSlot_(body) {
+  const required = ['date', 'theme_id', 'time'];
+  for (const f of required) {
+    if (!body[f]) return jsonOut_({ ok: false, error: '缺少欄位: ' + f });
+  }
+  const reason = (body.reason || '老闆關閉').toString();
+  const theme = THEMES.find(function (t) { return t.id === body.theme_id; });
+  if (!theme) return jsonOut_({ ok: false, error: '未知 theme_id: ' + body.theme_id });
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(8000);
+  try {
+    const sheet = ensureSheet_();
+    const last = sheet.getLastRow();
+    if (last >= 2) {
+      const values = sheet.getRange(2, 1, last - 1, HEADERS.length).getValues();
+      for (const row of values) {
+        const status = String(row[11] || 'confirmed');
+        if (status === 'cancelled') continue;
+        const rTheme = String(row[2]);
+        const rDate = formatDate_(row[4]);
+        const rTime = formatTime_(row[5]);
+        if (rTheme === body.theme_id && rDate === body.date && rTime === body.time) {
+          if (status === 'confirmed') {
+            return jsonOut_({
+              ok: false,
+              error: '此時段已有預約 (' + row[7] + '),請先取消那筆才能關閉',
+              conflict_id: String(row[0])
+            });
+          }
+          if (status === 'blocked') {
+            return jsonOut_({ ok: true, id: String(row[0]), changed: false, note: '此時段已被關閉' });
+          }
+        }
+      }
+    }
+
+    const id = 'BLK' + Date.now() + Math.floor(Math.random() * 1000);
+    sheet.appendRow([
+      id,
+      new Date().toISOString(),
+      body.theme_id,
+      theme.title,
+      body.date,
+      body.time,
+      0,
+      '(關閉) ' + reason,
+      '', '', '',
+      'blocked'
+    ]);
+    try { rebuildMonthSheet_(String(body.date).substring(0, 7)); } catch (e) {}
+    return jsonOut_({ ok: true, id: id, changed: true });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function reopenSlot_(body) {
+  const required = ['date', 'theme_id', 'time'];
+  for (const f of required) {
+    if (!body[f]) return jsonOut_({ ok: false, error: '缺少欄位: ' + f });
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(8000);
+  try {
+    const sheet = ensureSheet_();
+    const last = sheet.getLastRow();
+    if (last < 2) return jsonOut_({ ok: false, error: '查無資料' });
+    const values = sheet.getRange(2, 1, last - 1, HEADERS.length).getValues();
+    for (let i = 0; i < values.length; i++) {
+      const row = values[i];
+      const status = String(row[11] || 'confirmed');
+      if (status !== 'blocked') continue;
+      const rTheme = String(row[2]);
+      const rDate = formatDate_(row[4]);
+      const rTime = formatTime_(row[5]);
+      if (rTheme === body.theme_id && rDate === body.date && rTime === body.time) {
+        sheet.getRange(i + 2, 12).setValue('cancelled');
+        try { rebuildMonthSheet_(String(body.date).substring(0, 7)); } catch (e) {}
+        return jsonOut_({ ok: true, id: String(row[0]), changed: true });
+      }
+    }
+    return jsonOut_({ ok: false, error: '找不到該時段的關閉紀錄' });
+  } finally {
+    lock.releaseLock();
+  }
 }

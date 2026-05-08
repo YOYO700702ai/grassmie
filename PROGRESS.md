@@ -203,3 +203,10 @@ rebuildAll()             // 從 Bookings 重畫所有月份分頁
 - Summary: (1) 補上 booking.html 缺漏的 GTM-TDMJ9RC9 追蹤碼,全 6 個頁面覆蓋齊全。(2) 建新 Sheet「草咩咩現場收款」(獨立檔,給現場人員填現金/文化幣)+ 定價表;新預約進來會自動寫入該表,儀表板用 SUMIFS 即時加總當日收入,文化幣與現金分欄並列。
 - Verification: `grep GTM-TDMJ9RC9` 6 頁皆通過;新 Sheet 已建立(ID 在 onsite_deployment.json 本機保留)。Apps Script 的同步邏輯尚需重新部署 + 跑 syncAllToOnsite() 回填。
 - Notes: `onsite_deployment.json` 含 sheet_id,本機留底,不推 git。
+
+### 2026-05-08 14:25 - Claude Opus 4.7
+- Agent: Claude Opus 4.7
+- Changed: `apps-script.gs`, `push_code.py`(scope 改 spreadsheets)
+- Summary: 為 LINE bot 開放 5 個新 API 端點(list_bookings / get_booking / cancel_booking / update_booking / close_slot / reopen_slot)走 /exec 路線。bot 不用碰 Sheet,所有寫入會自動觸發月份分頁重建 + 現場收款表同步。manifest scope 從 spreadsheets.currentonly 擴成 spreadsheets(因為要 openById 開現場收款 Sheet)。
+- Verification: push_code.py 成功推送至 Apps Script。實際生效需使用者(1)重新部署 Web App,(2)在 editor 重跑一次 syncAllToOnsite 觸發新授權彈窗。
+- Notes: 桌面 `BOT_SPEC.md` 已同步改成方案 A 純 API 版,不在倉庫內。

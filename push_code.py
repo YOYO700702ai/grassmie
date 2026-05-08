@@ -19,7 +19,7 @@ MANIFEST = {
     "runtimeVersion": "V8",
     "webapp": {"executeAs": "USER_DEPLOYING", "access": "ANYONE_ANONYMOUS"},
     "oauthScopes": [
-        "https://www.googleapis.com/auth/spreadsheets.currentonly",
+        "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/script.send_mail",
         "https://www.googleapis.com/auth/script.scriptapp",
     ],
