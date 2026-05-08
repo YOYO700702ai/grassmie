@@ -1664,6 +1664,8 @@ p {
 
   .ticket-title-art {
     max-height: 116px;
+    margin-inline: auto;
+    object-position: center;
   }
 
   .signal .ticket-title-art {
@@ -1671,14 +1673,16 @@ p {
   }
 
   .temple .ticket-title-art {
-    width: min(132%, 860px);
-    max-height: 178px;
-    margin-left: 10px;
+    width: 100%;
+    max-width: 100%;
+    max-height: 142px;
+    margin-left: 0;
   }
 
   .circus .ticket-title-art {
-    width: min(108%, 720px);
-    max-height: 136px;
+    width: 100%;
+    max-width: 100%;
+    max-height: 128px;
     margin-left: 0;
   }
 

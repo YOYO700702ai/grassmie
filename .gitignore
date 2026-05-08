@@ -19,3 +19,9 @@ Thumbs.db
 # 暫存
 *.log
 *.tmp
+
+# SimplyBook 匯出的客戶名單(含姓名/電話/email,不推 public)
+*.xls
+
+# 注入用一次性腳本(已執行完即可丟)
+_inject_*.py

@@ -159,3 +159,33 @@ rebuildAll()             // 從 Bookings 重畫所有月份分頁
 
 - 全域指令:Claude → GPT 用 HANDOFF.md(在專案根目錄;每次覆寫)
 - 觸發詞:「交接給 GPT」/「接手」
+
+---
+
+## 修改日誌
+
+### 2026-05-08 13:41 - GPT-5.5
+- Agent: GPT-5.5
+- Changed: `styles.css`, `PROGRESS.md`, `C:\Users\USER\.codex\skills\progress-log-writer\SKILL.md`, `C:\Users\USER\.codex\skills\progress-log-writer\agents\openai.yaml`
+- Summary: 修正手機版主題卡片中 `哈梅爾寺`、`杰佩多先生` 標題圖偏移問題；新增 `progress-log-writer` Codex Skill，要求之後每次修改專案都更新 `PROGRESS.md` 並標註 GPT-5.5。
+- Verification: 檢查 `git diff -- styles.css`，確認只改手機 breakpoint 的標題圖置中/寬度限制；skill metadata 產生器因本機缺少 `yaml` 模組無法自動驗證，已改用手動建立 `agents/openai.yaml`。
+- Notes: 既有未追蹤檔案未變更：`157151373569fd6e54b2a1f8.94176219.xls`、`165192955069fd6e5e550551.75074041.xls`、`56364980969fd6e2360be25.85363791.xls`、`import_simplybook.py`。
+
+### 2026-05-08 13:44 - GPT-5.5
+- Agent: GPT-5.5
+- Changed: `C:\Users\USER\.codex\skills\progress-log-writer\SKILL.md`, `C:\Users\USER\.codex\skills\progress-log-writer\agents\openai.yaml`, `PROGRESS.md`
+- Summary: 將 `progress-log-writer` Skill 收窄為 `C:\Users\USER\Desktop\草咩咩` 專案專用，避免預設套用到其他專案；`PROGRESS.md` 仍是本專案專屬日誌。
+- Verification: 檢查 skill 內容已明確寫入只適用 `C:\Users\USER\Desktop\草咩咩`；未執行官方 quick_validate，原因是本機 Python 缺少 `yaml` 模組。
+
+### 2026-05-08 13:44 - Claude Opus 4.7
+- Agent: Claude Opus 4.7
+- Changed: `C:\Users\USER\.claude\skills\progress-log-writer\SKILL.md` (新建), `.gitignore`, `PROGRESS.md`
+- Summary: 建立 Claude 端的 progress-log-writer skill,標註「Claude Opus 4.7」並加入「跨 agent 接手檢查」邏輯——每次寫 log 前掃前幾筆其他 agent 紀錄,主動補完未 commit/push 的尾巴。順手把 SimplyBook 匯出的 `.xls` 客戶名單(含姓名電話 email)加進 `.gitignore`,避免推到 public repo 外洩。
+- Verification: skill 檔已建立;`.gitignore` 規則生效後 `git status` 不再列 .xls。
+- Notes: 接手檢查發現 GPT-5.5 兩筆 log 對應的 `styles.css` + `PROGRESS.md` 變更尚未 push,本次一起 commit + push。
+
+### 2026-05-08 13:44 - Claude Opus 4.7 (接手 GPT-5.5 未完成 push)
+- Agent: Claude Opus 4.7
+- Changed: 無新內容,代 commit + push GPT 上一輪未提交的 `styles.css` 與 `PROGRESS.md`
+- Summary: GPT 改完沒 push,代為提交。連同本次 .gitignore / SKILL.md 一起推上 GitHub Pages。
+- Verification: 見下方 git push 結果。
