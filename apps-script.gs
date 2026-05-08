@@ -15,6 +15,11 @@
 
 const SHEET_NAME = 'Bookings';
 
+// 現場收款 Sheet (獨立檔案,給現場人員填現金/文化幣)
+const ONSITE_SHEET_ID = '1coV1fSztjULH9YQ5jE5ct2QPfCNv0B2QxWrUXQO8-DU';
+const ONSITE_TAB = '收款明細';
+const ONSITE_PRICE_TAB = '定價';
+
 const HEADERS = [
   'id', 'created_at', 'theme_id', 'theme_title',
   'date', 'time', 'people',
@@ -170,6 +175,12 @@ function createBooking_(body) {
       rebuildMonthSheet_(yyyymm);
     } catch (viewErr) {
       // 月份視圖更新失敗不影響預約成功
+    }
+
+    try {
+      appendToOnsite_(Object.assign({}, body, { id: id }));
+    } catch (onsiteErr) {
+      // 現場收款表寫入失敗不影響預約成功
     }
 
     try { sendNotificationEmail_(body, id); } catch (mailErr) {}
@@ -420,4 +431,103 @@ function formatTime_(v) {
     return h + ':' + mi;
   }
   return String(v);
+}
+
+/* ============================================================
+ * 現場收款 Sheet 同步
+ * ============================================================ */
+
+function getPriceForBooking_(themeId, people, ss) {
+  if (!ss) ss = SpreadsheetApp.openById(ONSITE_SHEET_ID);
+  const sh = ss.getSheetByName(ONSITE_PRICE_TAB);
+  if (!sh) return null;
+  const last = sh.getLastRow();
+  if (last < 2) return null;
+  const values = sh.getRange(2, 1, last - 1, 5).getValues();
+  for (const row of values) {
+    const tid = String(row[0]).trim();
+    const minP = Number(row[2]);
+    const maxP = Number(row[3]);
+    const price = Number(row[4]);
+    if (tid === themeId && people >= minP && people <= maxP) {
+      return price;
+    }
+  }
+  return null;
+}
+
+function appendToOnsite_(booking) {
+  if (!ONSITE_SHEET_ID) return;
+  const ss = SpreadsheetApp.openById(ONSITE_SHEET_ID);
+  const sheet = ss.getSheetByName(ONSITE_TAB);
+  if (!sheet) return;
+  const pricePerPerson = getPriceForBooking_(booking.theme_id, booking.people, ss);
+  const expected = pricePerPerson ? pricePerPerson * booking.people : '';
+  sheet.appendRow([
+    booking.date,
+    booking.time,
+    booking.theme_title,
+    booking.name,
+    booking.people,
+    expected,
+    '', '', '',                // 現金 / 文化幣 / 備註 (現場填)
+    booking.id,
+  ]);
+}
+
+/**
+ * 一鍵把 Bookings 裡所有 confirmed 預約同步到現場收款表(去重)。
+ * 第一次設定後跑一次回填既有資料,日常 createBooking_ 會自動同步。
+ */
+function syncAllToOnsite() {
+  const src = ensureSheet_();
+  const ss = SpreadsheetApp.openById(ONSITE_SHEET_ID);
+  const sheet = ss.getSheetByName(ONSITE_TAB);
+  if (!sheet) throw new Error('找不到 ' + ONSITE_TAB + ' 分頁');
+
+  // 已存在的預約 ID
+  const existing = new Set();
+  const last = sheet.getLastRow();
+  if (last >= 2) {
+    const ids = sheet.getRange(2, 10, last - 1, 1).getValues();
+    for (const r of ids) {
+      if (r[0]) existing.add(String(r[0]));
+    }
+  }
+
+  const srcLast = src.getLastRow();
+  if (srcLast < 2) return;
+  const values = src.getRange(2, 1, srcLast - 1, HEADERS.length).getValues();
+
+  const toAppend = [];
+  for (const row of values) {
+    const id = String(row[0]);
+    const status = String(row[11] || 'confirmed');
+    if (status !== 'confirmed') continue;
+    if (existing.has(id)) continue;
+    const themeId = String(row[2]);
+    const themeTitle = String(row[3]);
+    const date = formatDate_(row[4]);
+    const time = formatTime_(row[5]);
+    const people = Number(row[6]);
+    const name = String(row[7]);
+    const pricePerPerson = getPriceForBooking_(themeId, people, ss);
+    const expected = pricePerPerson ? pricePerPerson * people : '';
+    toAppend.push([date, time, themeTitle, name, people, expected, '', '', '', id]);
+  }
+
+  if (toAppend.length === 0) {
+    Logger.log('沒有新資料要同步');
+    return;
+  }
+
+  // 依日期、時間排序後寫入
+  toAppend.sort(function (a, b) {
+    if (a[0] !== b[0]) return a[0] < b[0] ? -1 : 1;
+    return a[1] < b[1] ? -1 : 1;
+  });
+
+  const startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 1, toAppend.length, 10).setValues(toAppend);
+  Logger.log('已同步 ' + toAppend.length + ' 筆到現場收款表');
 }

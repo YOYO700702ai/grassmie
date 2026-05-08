@@ -196,3 +196,10 @@ rebuildAll()             // 從 Bookings 重畫所有月份分頁
 - Summary: 為另一個 LINE bot 專案整理 handoff 文件,放本機桌面。bot 本身將在另一資料夾實作,不在 grassmie 倉庫。
 - Verification: not run。
 - Notes: -
+
+### 2026-05-08 14:10 - Claude Opus 4.7
+- Agent: Claude Opus 4.7
+- Changed: `booking.html`, `apps-script.gs`, `deploy_onsite_sheet.py`(新建), `onsite_deployment.json`(本機,gitignore)
+- Summary: (1) 補上 booking.html 缺漏的 GTM-TDMJ9RC9 追蹤碼,全 6 個頁面覆蓋齊全。(2) 建新 Sheet「草咩咩現場收款」(獨立檔,給現場人員填現金/文化幣)+ 定價表;新預約進來會自動寫入該表,儀表板用 SUMIFS 即時加總當日收入,文化幣與現金分欄並列。
+- Verification: `grep GTM-TDMJ9RC9` 6 頁皆通過;新 Sheet 已建立(ID 在 onsite_deployment.json 本機保留)。Apps Script 的同步邏輯尚需重新部署 + 跑 syncAllToOnsite() 回填。
+- Notes: `onsite_deployment.json` 含 sheet_id,本機留底,不推 git。
