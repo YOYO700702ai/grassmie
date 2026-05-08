@@ -210,3 +210,10 @@ rebuildAll()             // 從 Bookings 重畫所有月份分頁
 - Summary: 為 LINE bot 開放 5 個新 API 端點(list_bookings / get_booking / cancel_booking / update_booking / close_slot / reopen_slot)走 /exec 路線。bot 不用碰 Sheet,所有寫入會自動觸發月份分頁重建 + 現場收款表同步。manifest scope 從 spreadsheets.currentonly 擴成 spreadsheets(因為要 openById 開現場收款 Sheet)。
 - Verification: push_code.py 成功推送至 Apps Script。實際生效需使用者(1)重新部署 Web App,(2)在 editor 重跑一次 syncAllToOnsite 觸發新授權彈窗。
 - Notes: 桌面 `BOT_SPEC.md` 已同步改成方案 A 純 API 版,不在倉庫內。
+
+### 2026-05-09 - Claude Opus 4.7
+- Agent: Claude Opus 4.7
+- Changed: `index.html`
+- Summary: 加入 SEO 關鍵字「恐怖密室 / 雙人密室 / 熱門密室」到 meta keywords + description (含 OG / Twitter / JSON-LD)。Google 不看 keywords meta,真正會被搜到的是 description / 標題,所以這些字也直接寫進描述文字。
+- Verification: not run。需等 Pages 部署 + Google 重新爬取(數小時~幾天)。
+- Notes: -
