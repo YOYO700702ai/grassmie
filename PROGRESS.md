@@ -189,3 +189,10 @@ rebuildAll()             // 從 Bookings 重畫所有月份分頁
 - Summary: 移除 PROGRESS.md 中「與其他 AI 交接相關」(HANDOFF.md / 觸發詞)那段;skill 端的 cross-agent follow-up check 規則保留,持續啟用。
 - Verification: `grep '與其他 AI'` 已查無結果。
 - Notes: -
+
+### 2026-05-08 13:55 - Claude Opus 4.7
+- Agent: Claude Opus 4.7
+- Changed: 無(僅本機文件,未推遠端)
+- Summary: 為另一個 LINE bot 專案整理 handoff 文件,放本機桌面。bot 本身將在另一資料夾實作,不在 grassmie 倉庫。
+- Verification: not run。
+- Notes: -
