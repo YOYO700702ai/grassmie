@@ -155,13 +155,6 @@ rebuildAll()             // 從 Bookings 重畫所有月份分頁
 
 ---
 
-## 與其他 AI 交接相關
-
-- 全域指令:Claude → GPT 用 HANDOFF.md(在專案根目錄;每次覆寫)
-- 觸發詞:「交接給 GPT」/「接手」
-
----
-
 ## 修改日誌
 
 ### 2026-05-08 13:41 - GPT-5.5
@@ -189,3 +182,10 @@ rebuildAll()             // 從 Bookings 重畫所有月份分頁
 - Changed: 無新內容,代 commit + push GPT 上一輪未提交的 `styles.css` 與 `PROGRESS.md`
 - Summary: GPT 改完沒 push,代為提交。連同本次 .gitignore / SKILL.md 一起推上 GitHub Pages。
 - Verification: 見下方 git push 結果。
+
+### 2026-05-08 13:50 - Claude Opus 4.7
+- Agent: Claude Opus 4.7
+- Changed: `PROGRESS.md`, `C:\Users\USER\.claude\skills\progress-log-writer\SKILL.md`
+- Summary: 移除 PROGRESS.md 中「與其他 AI 交接相關」(HANDOFF.md / 觸發詞)那段;skill 端的 cross-agent follow-up check 規則保留,持續啟用。
+- Verification: `grep '與其他 AI'` 已查無結果。
+- Notes: -
