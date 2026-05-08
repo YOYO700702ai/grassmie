@@ -217,3 +217,10 @@ rebuildAll()             // 從 Bookings 重畫所有月份分頁
 - Summary: 加入 SEO 關鍵字「恐怖密室 / 雙人密室 / 熱門密室」到 meta keywords + description (含 OG / Twitter / JSON-LD)。Google 不看 keywords meta,真正會被搜到的是 description / 標題,所以這些字也直接寫進描述文字。
 - Verification: not run。需等 Pages 部署 + Google 重新爬取(數小時~幾天)。
 - Notes: -
+
+### 2026-05-09 - Claude Opus 4.7
+- Agent: Claude Opus 4.7
+- Changed: `themes/*.html`(4 個主題的 description), `index.html`, `styles.css`
+- Summary: SEO 第二波。(1) 4 個主題頁的 meta description 全部改寫,各自塞入主題相符的關鍵字(劇情密室/恐怖密室/熱門密室/驚悚密室,雙人/團體)。(2) 首頁 hero 加可見的 tagline 段「台中沉浸式恐怖密室、劇情密室、熱門雙人密室...」,case 區段 h2 下加 subtitle「從恐怖密室到劇情解謎...」。Google 看實際內容比 meta 重要,所以可見文字也含關鍵字。配色:strong 強調用金黃。
+- Verification: not run。等 Pages 部署 + Google 重新爬取。
+- Notes: -

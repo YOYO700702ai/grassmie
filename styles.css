@@ -259,6 +259,33 @@ p {
   mix-blend-mode: screen;
 }
 
+.hero-tagline {
+  margin: 8px 0 18px;
+  max-width: 720px;
+  color: var(--paper);
+  font-size: clamp(15px, 1.6vw, 18px);
+  line-height: 1.7;
+  font-weight: 600;
+}
+
+.hero-tagline strong {
+  color: var(--gold);
+  font-weight: 900;
+}
+
+.case-subtitle {
+  margin: 12px 0 0;
+  max-width: 720px;
+  color: var(--muted);
+  font-size: clamp(14px, 1.4vw, 16px);
+  line-height: 1.7;
+}
+
+.case-subtitle strong {
+  color: var(--gold);
+  font-weight: 900;
+}
+
 .hero-brief {
   display: flex;
   flex-wrap: wrap;
