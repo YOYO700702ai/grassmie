@@ -26,22 +26,22 @@ const HEADERS = [
   'name', 'phone', 'email', 'note', 'status'
 ];
 
-// 每主題各自固定每 2 小時一場;週三公休;平日不開 11:00 前場次。
+// 每主題各自固定每 2 小時一場;週三公休。平假日場次相同。
 const THEME_SLOTS = {
   daughter: {
-    weekday: ['12:00', '14:00', '16:00', '18:00', '20:00'],
+    weekday: ['10:00', '12:00', '14:00', '16:00', '18:00', '20:00'],
     weekend: ['10:00', '12:00', '14:00', '16:00', '18:00', '20:00']
   },
   ai: {
-    weekday: ['12:00', '14:00', '16:00', '18:00', '20:00'],
+    weekday: ['10:00', '12:00', '14:00', '16:00', '18:00', '20:00'],
     weekend: ['10:00', '12:00', '14:00', '16:00', '18:00', '20:00']
   },
   hamel: {
-    weekday: ['11:30', '13:30', '15:30', '17:30', '19:30'],
+    weekday: ['09:30', '11:30', '13:30', '15:30', '17:30', '19:30'],
     weekend: ['09:30', '11:30', '13:30', '15:30', '17:30', '19:30']
   },
   geppetto: {
-    weekday: ['12:30', '14:30', '16:30', '18:30', '20:30'],
+    weekday: ['10:30', '12:30', '14:30', '16:30', '18:30', '20:30'],
     weekend: ['10:30', '12:30', '14:30', '16:30', '18:30', '20:30']
   }
 };
@@ -464,21 +464,12 @@ function getPriceForBooking_(themeId, people, ss) {
 
 function appendToOnsite_(booking) {
   if (!ONSITE_SHEET_ID) return;
-  const ss = SpreadsheetApp.openById(ONSITE_SHEET_ID);
-  const sheet = ss.getSheetByName(ONSITE_TAB);
-  if (!sheet) return;
-  const pricePerPerson = getPriceForBooking_(booking.theme_id, booking.people, ss);
-  const expected = pricePerPerson ? pricePerPerson * booking.people : '';
-  sheet.appendRow([
-    booking.date,
-    booking.time,
-    booking.theme_title,
-    booking.name,
-    booking.people,
-    expected,
-    '', '', '',                // 現金 / 文化幣 / 備註 (現場填)
-    booking.id,
-  ]);
+  rebuildOnsiteMonth_(String(booking.date).substring(0, 7));
+}
+
+function syncOnsiteForDate_(dateStr) {
+  if (!ONSITE_SHEET_ID || !dateStr) return;
+  try { rebuildOnsiteMonth_(String(dateStr).substring(0, 7)); } catch (e) {}
 }
 
 /**
@@ -643,6 +634,7 @@ function cancelBooking_(body) {
     }
     found.sheet.getRange(found.rowIndex, 12).setValue('cancelled');
     try { rebuildMonthSheet_(before.date.substring(0, 7)); } catch (e) {}
+    syncOnsiteForDate_(before.date);
     const after = readRow_(found.sheet, found.rowIndex);
     return jsonOut_({ ok: true, data: after, changed: true });
   } finally {
@@ -689,6 +681,7 @@ function updateBooking_(body) {
       return jsonOut_({ ok: true, data: before, changed: false, note: '沒提供要更新的欄位' });
     }
     try { rebuildMonthSheet_(before.date.substring(0, 7)); } catch (e) {}
+    syncOnsiteForDate_(before.date);
     const after = readRow_(sheet, r);
     return jsonOut_({ ok: true, data: after, changed: true, updated: updates });
   } finally {
@@ -782,4 +775,460 @@ function reopenSlot_(body) {
   } finally {
     lock.releaseLock();
   }
+}
+
+
+/* ============================================================
+ * 現場收款 v2: 每月一分頁 + 每日小計 + 本月總計
+ * ============================================================ */
+
+function loadPriceTable_(ss) {
+  const sh = ss.getSheetByName(ONSITE_PRICE_TAB);
+  if (!sh) return [];
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, 5).getValues();
+}
+
+function priceFromTable_(prices, themeId, people) {
+  for (const row of prices) {
+    if (String(row[0]).trim() === themeId &&
+        people >= Number(row[2]) && people <= Number(row[3])) {
+      return Number(row[4]);
+    }
+  }
+  return null;
+}
+
+/* ============================================================
+ * 現場收款 v3: 每月一分頁,每日 6 列場次 × 4 主題並排
+ *   每天結尾一列「日結」,月底一列「本月總計」
+ *   現場可填的欄: 收款 / 小天使 / 備註(三欄)
+ *   重建時以「日期|主題|場次時間」為 key 保留現場已填的值
+ * ============================================================ */
+
+const ONSITE_MAX_SLOTS = 6;
+const ONSITE_THEME_ORDER = ['daughter', 'hamel', 'ai', 'geppetto'];
+const ONSITE_THEME_COL_LABELS = ['場次', '小天使', '現金', '文化幣', '備註'];
+// theme block 欄寬 (場次/預約人/人數/電話/收款/小天使/備註)
+const ONSITE_THEME_COL_WIDTHS = [70, 90, 80, 80, 110];
+const ONSITE_ANGEL_OPTIONS = ['他口', '小飛', '鯨魚', '阿單', '阿葳', '美魚', 'Ling', '尤尤', '小悅'];
+
+// 每個小天使對應的格子背景色(條件式格式自動套用)
+const ONSITE_ANGEL_COLORS = {
+  '尤尤':   '#f4cccc',  // 粉紅
+  '他口':   '#f6b26b',  // 橘
+  '小悅':   '#ffd966',  // 黃
+  '美魚':   '#d9ead3',  // 淺黃綠
+  '小飛':   '#b6d7a8',  // 綠
+  'Ling':   '#a4c2f4',  // 淺藍
+  '阿單':   '#6fa8dc',  // 深藍
+  '鯨魚':   '#d5a6bd',  // 粉紫
+  '阿葳':   '#b4a7d6'   // 紫
+};
+
+const ONSITE_THEME_TITLES = {
+  daughter: '不存在的女兒',
+  hamel: '哈梅爾寺',
+  ai: '這是 AI 做的密室',
+  geppetto: '杰佩多先生'
+};
+const ONSITE_THEME_COLORS = {
+  daughter: '#fdd9e1',
+  hamel:    '#ffe5b4',
+  ai:       '#cdebd6',
+  geppetto: '#d9e2ff'
+};
+// 每 day block 列數 = 6 場次 + 1 日結 = 7
+const ONSITE_DAY_ROWS = ONSITE_MAX_SLOTS + 1;
+const ONSITE_HEADER_ROWS = 2;  // 主題列 + 子標題列
+
+function _onsiteThemeStartCol_(themeIdx) {
+  // A=日期, B=星期, 從 C 開始第一個主題
+  return 3 + themeIdx * ONSITE_THEME_COL_LABELS.length;
+}
+
+/**
+ * 重畫單一月份的現場收款分頁
+ */
+function rebuildOnsiteMonth_(yyyymm) {
+  if (!ONSITE_SHEET_ID) return;
+  const ss = SpreadsheetApp.openById(ONSITE_SHEET_ID);
+  let view = ss.getSheetByName(yyyymm);
+  if (!view) view = ss.insertSheet(yyyymm);
+
+  const parts = yyyymm.split('-').map(Number);
+  const y = parts[0], m = parts[1];
+  const daysInMonth = new Date(y, m, 0).getDate();
+
+  // 1) 從現有分頁保留「收款 / 小天使 / 備註」(以 date|theme|time 為 key)
+  const preserved = {};
+  const existingLast = view.getLastRow();
+  if (existingLast > ONSITE_HEADER_ROWS) {
+    // 用我們的固定布局回推
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayStartRow = ONSITE_HEADER_ROWS + 1 + (d - 1) * ONSITE_DAY_ROWS;
+      const slotsBlockEndRow = dayStartRow + ONSITE_MAX_SLOTS - 1;
+      if (slotsBlockEndRow > existingLast) break;
+      const dateStr = yyyymm + '-' + String(d).padStart(2, '0');
+      const dt = new Date(y, m - 1, d);
+      const dow = dt.getDay();
+      if (dow === 3) continue; // 公休那天什麼都沒填
+      for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
+        const themeId = ONSITE_THEME_ORDER[ti];
+        const slots = slotsForThemeDate_(themeId, dateStr);
+        const themeCol = _onsiteThemeStartCol_(ti);
+        for (let i = 0; i < slots.length; i++) {
+          const row = dayStartRow + i;
+          // 欄位: 場次=themeCol+0, 小天使=+1, 現金=+2, 文化幣=+3, 備註=+4
+          const angel = view.getRange(row, themeCol + 1).getValue();
+          const cash = view.getRange(row, themeCol + 2).getValue();
+          const coin = view.getRange(row, themeCol + 3).getValue();
+          const note = view.getRange(row, themeCol + 4).getValue();
+          if (cash !== '' || coin !== '' || angel !== '' || note !== '') {
+            preserved[dateStr + '|' + themeId + '|' + slots[i]] = {
+              cash: cash, coin: coin, angel: angel, note: note
+            };
+          }
+        }
+      }
+    }
+  }
+
+  view.clear();
+
+  // 2) 從 Bookings 抓本月所有 confirmed,建立 (date|theme|time -> booking) map
+  const src = ensureSheet_();
+  const srcLast = src.getLastRow();
+  const bookMap = {};
+  if (srcLast >= 2) {
+    const values = src.getRange(2, 1, srcLast - 1, HEADERS.length).getValues();
+    for (const row of values) {
+      const status = String(row[11] || 'confirmed');
+      if (status !== 'confirmed') continue;
+      const date = formatDate_(row[4]);
+      if (date.indexOf(yyyymm) !== 0) continue;
+      const time = formatTime_(row[5]);
+      const themeId = String(row[2]);
+      bookMap[date + '|' + themeId + '|' + time] = {
+        name: String(row[7] || ''),
+        people: Number(row[6]) || 0,
+        phone: String(row[8] || ''),
+        id: String(row[0])
+      };
+    }
+  }
+
+  // 3) 生成 headers (兩列)
+  const totalCols = 2 + ONSITE_THEME_ORDER.length * ONSITE_THEME_COL_LABELS.length + 2;
+  const colTotalShouShou = totalCols - 1;  // 今日實收 (0-indexed)
+  const colTotalIncome = totalCols;        // 今日總收益 (1-indexed for letter)
+  const header1 = new Array(totalCols).fill('');
+  header1[0] = '日期';
+  header1[1] = '星期';
+  for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
+    const startIdx = _onsiteThemeStartCol_(ti) - 1;
+    header1[startIdx] = ONSITE_THEME_TITLES[ONSITE_THEME_ORDER[ti]];
+  }
+  header1[totalCols - 2] = '日結合計';
+  const header2 = new Array(totalCols).fill('');
+  for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
+    const startIdx = _onsiteThemeStartCol_(ti) - 1;
+    for (let c = 0; c < ONSITE_THEME_COL_LABELS.length; c++) {
+      header2[startIdx + c] = ONSITE_THEME_COL_LABELS[c];
+    }
+  }
+  header2[totalCols - 2] = '今日實收';
+  header2[totalCols - 1] = '今日總收益';
+
+  const data = [header1, header2];
+  const notes = [new Array(totalCols).fill(''), new Array(totalCols).fill('')];
+  const bookedCells = [];        // 預約格 [{row, col}],事後染黃 + 加下拉
+  const dailySubtotalRows = []; // 1-indexed sheet row
+  const closedDayRows = [];      // 公休整個日整 block 染色用
+
+  // 4) 每天的 7 列(6 場次 + 1 日結)
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = yyyymm + '-' + String(d).padStart(2, '0');
+    const dt = new Date(y, m - 1, d);
+    const dow = dt.getDay();
+    const isClosed = dow === 3;
+    const wkLabel = '週' + WEEKDAYS_TC[dow];
+
+    // dayStartRow = 在最終 sheet 的第幾列(1-indexed)
+    const dayStartRow = ONSITE_HEADER_ROWS + 1 + (d - 1) * ONSITE_DAY_ROWS;
+
+    // 6 場次列
+    for (let i = 0; i < ONSITE_MAX_SLOTS; i++) {
+      const row = new Array(totalCols).fill('');
+      const noteRow = new Array(totalCols).fill('');
+      if (i === 0) {
+        row[0] = dateStr;
+        row[1] = wkLabel;
+      }
+      for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
+        const themeId = ONSITE_THEME_ORDER[ti];
+        const startIdx = _onsiteThemeStartCol_(ti) - 1;
+        if (isClosed) {
+          row[startIdx] = '公休';
+          continue;
+        }
+        const slots = slotsForThemeDate_(themeId, dateStr);
+        if (i >= slots.length) continue;
+        const time = slots[i];
+        row[startIdx + 0] = time;
+        const k = dateStr + '|' + themeId + '|' + time;
+        const b = bookMap[k];
+        const p = preserved[k];
+        if (b) {
+          // 預約格 (小天使欄): 顯示已選天使名字(若有);hover note 顯示客戶資訊
+          row[startIdx + 1] = (p && p.angel) || '';
+          noteRow[startIdx + 1] = '姓名: ' + b.name + '\n人數: ' + b.people + ' 人\n電話: ' + b.phone;
+          bookedCells.push({
+            row: ONSITE_HEADER_ROWS + 1 + (d - 1) * ONSITE_DAY_ROWS + i,
+            col: startIdx + 1 + 1  // 1-indexed
+          });
+        }
+        if (p) {
+          row[startIdx + 2] = p.cash || '';
+          row[startIdx + 3] = p.coin || '';
+          row[startIdx + 4] = p.note || '';
+        }
+      }
+      data.push(row);
+      notes.push(noteRow);
+    }
+
+    // 日結列
+    const subRow = new Array(totalCols).fill('');
+    subRow[1] = (m + '/' + d) + ' 日結';
+    if (!isClosed) {
+      const fr = dayStartRow;
+      const lr = dayStartRow + ONSITE_MAX_SLOTS - 1;
+      const subRowNum = dayStartRow + ONSITE_MAX_SLOTS;
+      const cashCols = [];
+      const coinCols = [];
+      for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
+        const startIdx = _onsiteThemeStartCol_(ti) - 1;
+        const colCash = _onsiteColLetter_(startIdx + 2 + 1);
+        const colCoin = _onsiteColLetter_(startIdx + 3 + 1);
+        subRow[startIdx + 2] = '=SUM(' + colCash + fr + ':' + colCash + lr + ')';
+        subRow[startIdx + 3] = '=SUM(' + colCoin + fr + ':' + colCoin + lr + ')';
+        cashCols.push(colCash);
+        coinCols.push(colCoin);
+      }
+      // 今日實收 = 各主題 現金加總
+      subRow[totalCols - 2] = '=' + cashCols.map(function (c) { return c + subRowNum; }).join('+');
+      // 今日總收益 = 各主題 (現金 + 文化幣) 加總
+      const allCols = cashCols.concat(coinCols);
+      subRow[totalCols - 1] = '=' + allCols.map(function (c) { return c + subRowNum; }).join('+');
+    } else {
+      subRow[2] = '公休';
+    }
+    data.push(subRow);
+    notes.push(new Array(totalCols).fill(''));
+    dailySubtotalRows.push(dayStartRow + ONSITE_MAX_SLOTS);
+    if (isClosed) {
+      closedDayRows.push(dayStartRow);
+    }
+  }
+
+  // 5) 空白列
+  data.push(new Array(totalCols).fill(''));
+  notes.push(new Array(totalCols).fill(''));
+  // 6) 本月總計
+  const monthRow = new Array(totalCols).fill('');
+  monthRow[1] = yyyymm + ' 本月總計';
+  for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
+    const startIdx = _onsiteThemeStartCol_(ti) - 1;
+    const colCash = _onsiteColLetter_(startIdx + 2 + 1);
+    const colCoin = _onsiteColLetter_(startIdx + 3 + 1);
+    monthRow[startIdx + 2] = '=SUMIFS(' + colCash + ':' + colCash + ', B:B, "*日結*")';
+    monthRow[startIdx + 3] = '=SUMIFS(' + colCoin + ':' + colCoin + ', B:B, "*日結*")';
+  }
+  const colShouShouLetter = _onsiteColLetter_(totalCols - 1);
+  const colTotalLetter = _onsiteColLetter_(totalCols);
+  monthRow[totalCols - 2] = '=SUMIFS(' + colShouShouLetter + ':' + colShouShouLetter + ', B:B, "*日結*")';
+  monthRow[totalCols - 1] = '=SUMIFS(' + colTotalLetter + ':' + colTotalLetter + ', B:B, "*日結*")';
+  data.push(monthRow);
+  notes.push(new Array(totalCols).fill(''));
+  const monthRowIndex = data.length;  // 1-indexed final sheet row
+
+  // 7) 寫入
+  view.getRange(1, 1, data.length, totalCols).setValues(data);
+  view.getRange(1, 1, notes.length, totalCols).setNotes(notes);
+
+  // 預約格染黃 + 小天使下拉選單
+  const angelRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(ONSITE_ANGEL_OPTIONS, true)
+    .setAllowInvalid(false)
+    .build();
+  for (const cell of bookedCells) {
+    view.getRange(cell.row, cell.col)
+      .setBackground('#fff4d6')
+      .setDataValidation(angelRule);
+  }
+
+  // 8) 樣式
+  view.setFrozenRows(2);
+  view.setFrozenColumns(2);
+
+  // 主題列合併 + 上色
+  for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
+    const startCol = _onsiteThemeStartCol_(ti);
+    view.getRange(1, startCol, 1, ONSITE_THEME_COL_LABELS.length).merge()
+      .setHorizontalAlignment('center')
+      .setBackground(ONSITE_THEME_COLORS[ONSITE_THEME_ORDER[ti]])
+      .setFontWeight('bold');
+    view.getRange(2, startCol, 1, ONSITE_THEME_COL_LABELS.length)
+      .setFontWeight('bold')
+      .setBackground('#f3f3f3')
+      .setHorizontalAlignment('center');
+  }
+  // 日結合計 區塊
+  view.getRange(1, totalCols - 1, 1, 2).merge()
+    .setHorizontalAlignment('center')
+    .setBackground('#ffd966')
+    .setFontWeight('bold');
+  view.getRange(2, totalCols - 1, 1, 2)
+    .setFontWeight('bold')
+    .setBackground('#ffe599')
+    .setHorizontalAlignment('center');
+  view.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#f3f3f3');
+  view.getRange(2, 1, 1, 2).setFontWeight('bold').setBackground('#f3f3f3').setHorizontalAlignment('center');
+
+  // 合併 A,B 各日的日期/星期(跨 7 列)
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dayStartRow = ONSITE_HEADER_ROWS + 1 + (d - 1) * ONSITE_DAY_ROWS;
+    view.getRange(dayStartRow, 1, ONSITE_MAX_SLOTS, 1).merge()
+      .setHorizontalAlignment('center')
+      .setVerticalAlignment('middle')
+      .setFontWeight('bold');
+    view.getRange(dayStartRow, 2, ONSITE_MAX_SLOTS, 1).merge()
+      .setHorizontalAlignment('center')
+      .setVerticalAlignment('middle')
+      .setFontWeight('bold');
+  }
+
+  // 公休日染粉紅
+  for (const r of closedDayRows) {
+    view.getRange(r, 1, ONSITE_MAX_SLOTS + 1, totalCols)
+      .setBackground('#fadcdc');
+  }
+
+  // 日結列染淺藍(與預約格的米黃明顯區分)
+  for (const r of dailySubtotalRows) {
+    if (closedDayRows.indexOf(r - ONSITE_MAX_SLOTS) === -1) {
+      view.getRange(r, 1, 1, totalCols).setBackground('#cfe2f3').setFontWeight('bold');
+    }
+  }
+
+  // 本月總計染金黃
+  view.getRange(monthRowIndex, 1, 1, totalCols).setBackground('#ffd966').setFontWeight('bold');
+
+  // 欄寬
+  view.setColumnWidth(1, 105);
+  view.setColumnWidth(2, 70);
+  for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
+    const startCol = _onsiteThemeStartCol_(ti);
+    for (let c = 0; c < ONSITE_THEME_COL_WIDTHS.length; c++) {
+      view.setColumnWidth(startCol + c, ONSITE_THEME_COL_WIDTHS[c]);
+    }
+  }
+  view.setColumnWidth(totalCols - 1, 100);  // 今日實收
+  view.setColumnWidth(totalCols, 110);      // 今日總收益
+
+  // 小天使選擇 → 對應顏色 (條件式格式;下拉選誰格子就染誰的色)
+  const angelRanges = [];
+  for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
+    const startCol = _onsiteThemeStartCol_(ti);
+    const angelCol = startCol + 1;
+    angelRanges.push(view.getRange(3, angelCol, view.getMaxRows() - 2, 1));
+  }
+  const colorRules = [];
+  for (const angelName in ONSITE_ANGEL_COLORS) {
+    colorRules.push(
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenTextEqualTo(angelName)
+        .setBackground(ONSITE_ANGEL_COLORS[angelName])
+        .setRanges(angelRanges)
+        .build()
+    );
+  }
+  view.setConditionalFormatRules(colorRules);
+}
+
+/**
+ * 把 1-indexed 欄號轉成欄母 (1->A, 27->AA)。
+ */
+function _onsiteColLetter_(col) {
+  let s = '';
+  while (col > 0) {
+    const r = (col - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    col = Math.floor((col - 1) / 26);
+  }
+  return s;
+}
+
+/**
+ * 一鍵清掉舊「收款明細」分頁 + 重建所有月份分頁。
+ * 第一次升級到 v2 跑一次,日後 createBooking_ / cancel / update 會自動同步。
+ */
+function syncAllToOnsiteV2() {
+  if (!ONSITE_SHEET_ID) throw new Error('ONSITE_SHEET_ID 未設定');
+  const ss = SpreadsheetApp.openById(ONSITE_SHEET_ID);
+
+  // 刪除舊 v1 的 收款明細 分頁(若存在)
+  const old = ss.getSheetByName('收款明細');
+  if (old) {
+    ss.deleteSheet(old);
+    Logger.log('已刪除舊「收款明細」分頁');
+  }
+
+  // 為避免欄位數變更殘留,先刪掉所有 YYYY-MM 分頁再重建
+  const allSheets = ss.getSheets();
+  for (const sh of allSheets) {
+    if (/^\d{4}-\d{2}$/.test(sh.getName())) {
+      ss.deleteSheet(sh);
+    }
+  }
+
+  // 從 Bookings 抓所有月份
+  const src = ensureSheet_();
+  const last = src.getLastRow();
+  if (last < 2) {
+    Logger.log('Bookings 是空的,無資料可同步');
+    return;
+  }
+  const months = new Set();
+  const dates = src.getRange(2, 5, last - 1, 1).getValues();
+  for (const row of dates) {
+    const d = formatDate_(row[0]);
+    if (d && /^\d{4}-\d{2}/.test(d)) months.add(d.substring(0, 7));
+  }
+
+  Array.from(months).sort().forEach(rebuildOnsiteMonth_);
+  Logger.log('已同步 ' + months.size + ' 個月份');
+}
+
+
+/**
+ * 重畫現場表的所有月份分頁(保留現金/小天使/備註)。
+ * 跟 syncAllToOnsiteV2 不同:這個不刪 tab,只 rebuild 每個現有 tab。
+ */
+function rebuildAllOnsite() {
+  if (!ONSITE_SHEET_ID) return;
+  const ss = SpreadsheetApp.openById(ONSITE_SHEET_ID);
+  const months = [];
+  ss.getSheets().forEach(function (sh) {
+    if (/^\d{4}-\d{2}$/.test(sh.getName())) {
+      months.push(sh.getName());
+    }
+  });
+  months.sort();
+  for (const m of months) {
+    rebuildOnsiteMonth_(m);
+  }
+  Logger.log('Rebuilt onsite months: ' + months.join(', '));
 }
