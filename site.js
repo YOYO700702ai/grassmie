@@ -181,6 +181,11 @@ function renderThemeDetail() {
           <div class="price-list">
             ${priceMarkup(theme.prices)}
           </div>
+          <p class="booking-notice">
+            <i data-lucide="message-circle"></i>
+            24 小時內預約請私訊
+            <a href="https://www.facebook.com/strawberrytrueescape" target="_blank" rel="noreferrer">粉絲專頁</a>
+          </p>
           <a class="button primary booking-button" href="../booking.html?theme=${theme.id}">
             <i data-lucide="calendar-check"></i>
             前往預約

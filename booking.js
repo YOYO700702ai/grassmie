@@ -60,6 +60,18 @@ function isClosedDay(dateStr) {
   return d.getDay() === 3;
 }
 
+// 最早可訂的日期 = 現在 + 24 小時
+function minBookingDateStr() {
+  return toDateStr(new Date(Date.now() + 24 * 60 * 60 * 1000));
+}
+
+// 若日期落在 24 小時截止那天,回傳截止時間(HH:MM);否則 null
+function cutoffTimeForDate(dateStr) {
+  const cutoff = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  if (toDateStr(cutoff) !== dateStr) return null;
+  return `${String(cutoff.getHours()).padStart(2,"0")}:${String(cutoff.getMinutes()).padStart(2,"0")}`;
+}
+
 function slotsForThemeDate(themeId, dateStr) {
   const d = new Date(dateStr + "T00:00:00");
   const dow = d.getDay();
@@ -67,7 +79,11 @@ function slotsForThemeDate(themeId, dateStr) {
   const t = THEME_SLOTS[themeId];
   if (!t) return [];
   const isWeekend = dow === 0 || dow === 6;
-  return isWeekend ? t.weekend : t.weekday;
+  let slots = isWeekend ? t.weekend : t.weekday;
+  // 篩掉 24 小時內的場次
+  const cutoff = cutoffTimeForDate(dateStr);
+  if (cutoff) slots = slots.filter((s) => s > cutoff);
+  return slots;
 }
 
 function setStep(n) {
@@ -135,7 +151,7 @@ function renderStep1() {
 /* -------- Step 2: 日期 + 人數 -------- */
 function renderStep2() {
   const theme = getTheme();
-  const min = todayStr();
+  const min = minBookingDateStr();
   // 解析人數選項範圍
   const range = parsePlayers(theme.players);
   const options = [];

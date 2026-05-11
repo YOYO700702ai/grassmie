@@ -1765,3 +1765,30 @@ p {
     flex-direction: column;
   }
 }
+
+.booking-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px 16px;
+  border: 1px solid rgba(216, 166, 74, 0.45);
+  border-radius: 8px;
+  background: rgba(216, 166, 74, 0.1);
+  color: #f1d58e;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.booking-notice svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.booking-notice a {
+  color: var(--gold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
