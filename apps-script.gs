@@ -117,6 +117,7 @@ function doPost(e) {
     if (action === 'update_booking') return updateBooking_(body);
     if (action === 'close_slot') return closeSlot_(body);
     if (action === 'reopen_slot') return reopenSlot_(body);
+    if (action === 'batch_slot_ops') return batchSlotOps_(body);
     return jsonOut_({ ok: false, error: 'unknown action' });
   } catch (err) {
     return jsonOut_({ ok: false, error: String(err) });
@@ -843,6 +844,33 @@ function closeSlot_(body) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * 一次處理多個關閉/重開操作 (一個 lock,避免 LockService 排隊 timeout)
+ * body: { ops: [{op:'close'|'reopen', date, theme_id, time, reason?}] }
+ * 回傳: { ok:true, results:[{ok, id?, error?}], summary:{ok, fail} }
+ */
+function batchSlotOps_(body) {
+  // 直接呼叫各自帶 lock 的 closeSlot_/reopenSlot_,序列執行 (同一個 execution 不會 deadlock)
+  const ops = Array.isArray(body.ops) ? body.ops : [];
+  if (!ops.length) return jsonOut_({ ok: false, error: '沒有 ops' });
+  const results = [];
+  let ok = 0, fail = 0;
+  for (const o of ops) {
+    try {
+      let r;
+      if (o.op === 'close') r = JSON.parse(closeSlot_({ date: o.date, theme_id: o.theme_id, time: o.time, reason: o.reason || '後台' }).getContent());
+      else if (o.op === 'reopen') r = JSON.parse(reopenSlot_({ date: o.date, theme_id: o.theme_id, time: o.time }).getContent());
+      else { results.push({ ok: false, error: 'unknown op: ' + o.op }); fail++; continue; }
+      results.push(r);
+      if (r.ok) ok++; else fail++;
+    } catch (e) {
+      results.push({ ok: false, error: String(e) });
+      fail++;
+    }
+  }
+  return jsonOut_({ ok: true, results: results, summary: { ok: ok, fail: fail } });
 }
 
 function reopenSlot_(body) {

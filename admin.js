@@ -152,30 +152,35 @@ async function confirmChanges() {
   btn.disabled = true;
   btn.textContent = `送出中… (${entries.length})`;
 
-  const results = await Promise.allSettled(entries.map(([key, action]) => {
+  // 一個請求送全部 ops,後端序列處理,不會 LockService timeout
+  const ops = entries.map(([key, action]) => {
     const [theme_id, time] = key.split('|');
-    const a = action === "close" ? "close_slot" : "reopen_slot";
-    return api("POST", { action: a, date: CURRENT_DATE, theme_id, time, reason: "後台" });
-  }));
+    return { op: action, theme_id, time, date: CURRENT_DATE };
+  });
+  const resp = await api("POST", { action: "batch_slot_ops", ops });
 
   let ok = 0, fail = 0;
   const failedPending = {};
-  results.forEach((r, i) => {
-    const [key, action] = entries[i];
-    if (r.status === "fulfilled" && r.value && r.value.ok) {
-      ok++;
-      // 本地更新狀態,避免再撈 API
-      const [theme_id, time] = key.split('|');
-      if (action === "close") {
-        DAY_STATE[key] = { id: r.value.id, theme_id, time, status: "blocked", name: "(關閉) 後台" };
+  if (resp && resp.ok && Array.isArray(resp.results)) {
+    resp.results.forEach((r, i) => {
+      const [key, action] = entries[i];
+      if (r && r.ok) {
+        ok++;
+        const [theme_id, time] = key.split('|');
+        if (action === "close") {
+          DAY_STATE[key] = { id: r.id, theme_id, time, status: "blocked", name: "(關閉) 後台" };
+        } else {
+          delete DAY_STATE[key];
+        }
       } else {
-        delete DAY_STATE[key];
+        fail++;
+        failedPending[key] = action;
       }
-    } else {
-      fail++;
-      failedPending[key] = action;
-    }
-  });
+    });
+  } else {
+    fail = entries.length;
+    entries.forEach(([k, a]) => failedPending[k] = a);
+  }
 
   PENDING = failedPending;
   btn.disabled = false;
