@@ -65,13 +65,6 @@ function minBookingDateStr() {
   return toDateStr(new Date(Date.now() + 24 * 60 * 60 * 1000));
 }
 
-// 若日期落在 24 小時截止那天,回傳截止時間(HH:MM);否則 null
-function cutoffTimeForDate(dateStr) {
-  const cutoff = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  if (toDateStr(cutoff) !== dateStr) return null;
-  return `${String(cutoff.getHours()).padStart(2,"0")}:${String(cutoff.getMinutes()).padStart(2,"0")}`;
-}
-
 function slotsForThemeDate(themeId, dateStr) {
   const d = new Date(dateStr + "T00:00:00");
   const dow = d.getDay();
@@ -80,9 +73,12 @@ function slotsForThemeDate(themeId, dateStr) {
   if (!t) return [];
   const isWeekend = dow === 0 || dow === 6;
   let slots = isWeekend ? t.weekend : t.weekday;
-  // 篩掉 24 小時內的場次
-  const cutoff = cutoffTimeForDate(dateStr);
-  if (cutoff) slots = slots.filter((s) => s > cutoff);
+  // 24 小時截止點
+  const cutoffMs = Date.now() + 24 * 60 * 60 * 1000;
+  slots = slots.filter((s) => {
+    const slotMs = new Date(`${dateStr}T${s.length === 4 ? "0" : ""}${s}:00`).getTime();
+    return slotMs >= cutoffMs;
+  });
   return slots;
 }
 

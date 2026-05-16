@@ -20,6 +20,17 @@ const ONSITE_SHEET_ID = '1coV1fSztjULH9YQ5jE5ct2QPfCNv0B2QxWrUXQO8-DU';
 const ONSITE_TAB = '收款明細';
 const ONSITE_PRICE_TAB = '定價';
 
+// 營業報表 Sheet (用 IMPORTRANGE 直接抓現場日結,完全自動)
+const REPORT_SHEET_ID = '1H_eznBVmV-Qo0ylk1isTANaIcsk7XC4HWf4WU6-su2E';
+const REPORT_TEMPLATE_TAB = '空白月營業報表';
+// 每主題在 (報表現金欄, 現場 cash 欄, 現場 文化幣 欄)
+const REPORT_THEME_MAP = {
+  ai:       { reportCol: 'B', onsiteCash: 'R', onsiteCoin: 'S' },
+  geppetto: { reportCol: 'D', onsiteCash: 'X', onsiteCoin: 'Y' },
+  daughter: { reportCol: 'F', onsiteCash: 'F', onsiteCoin: 'G' },
+  hamel:    { reportCol: 'H', onsiteCash: 'L', onsiteCoin: 'M' }
+};
+
 const HEADERS = [
   'id', 'created_at', 'theme_id', 'theme_title',
   'date', 'time', 'people',
@@ -142,6 +153,21 @@ function createBooking_(body) {
     if (!body[f]) return jsonOut_({ ok: false, error: '缺少欄位: ' + f });
   }
 
+  // 擋 24 小時內預約 (網頁前端用;77 / 老闆呼叫時帶 bypass_24h:true 即可繞過)
+  if (!body.bypass_24h) {
+    try {
+      const slotDt = new Date(body.date + 'T' + (body.time.length === 4 ? '0' : '') + body.time + ':00+08:00');
+      const diffMs = slotDt.getTime() - Date.now();
+      if (diffMs < 24 * 60 * 60 * 1000) {
+        return jsonOut_({
+          ok: false,
+          error: '24 小時內的場次無法線上預約,請私訊草咩咩 FB 粉專安排',
+          too_soon: true
+        });
+      }
+    } catch (e) { /* 解析失敗就放行,讓下面照常驗 */ }
+  }
+
   const lock = LockService.getScriptLock();
   lock.waitLock(8000);
   try {
@@ -190,11 +216,84 @@ function createBooking_(body) {
     }
 
     try { sendNotificationEmail_(body, id); } catch (mailErr) {}
+    try { sendCustomerConfirmation_(body, id); } catch (mailErr) {}
 
     return jsonOut_({ ok: true, id: id });
   } finally {
     lock.releaseLock();
   }
+}
+
+function sendCustomerConfirmation_(body, id) {
+  const to = String(body.email || '').trim();
+  if (!to || to.indexOf('@') < 0) return; // 沒填 email 就跳過
+  const subject = '[草咩咩遊戲工作室] 預約成功 - ' + body.theme_title + ' ' + body.date + ' ' + body.time;
+  const dt = body.date + ' ' + body.time;
+  const html =
+    '<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width:560px; margin:auto; color:#11100d;">' +
+      '<div style="background:#11100d; color:#f5ead3; padding:24px; text-align:center;">' +
+        '<h1 style="margin:0; font-size:22px; letter-spacing:2px;">草咩咩遊戲工作室</h1>' +
+        '<p style="margin:8px 0 0; font-size:13px; opacity:.8;">CaoMeMe Game Studio</p>' +
+      '</div>' +
+      '<div style="padding:24px; background:#fffaf0;">' +
+        '<h2 style="margin:0 0 16px; color:#a8762a;">✅ 預約成功</h2>' +
+        '<p style="margin:0 0 16px;">' + escapeHtml_(body.name) + ' 您好,感謝您預約草咩咩遊戲工作室!以下是您的預約資訊:</p>' +
+        '<table style="width:100%; border-collapse:collapse; margin:16px 0;">' +
+          tableRow_('預約編號', id) +
+          tableRow_('主題', body.theme_title) +
+          tableRow_('日期時間', dt) +
+          tableRow_('人數', String(body.people) + ' 人') +
+          tableRow_('姓名', body.name) +
+          tableRow_('電話', body.phone) +
+          (body.note ? tableRow_('備註', body.note) : '') +
+        '</table>' +
+        '<div style="background:#fff4d6; border-left:4px solid #d4a72a; padding:12px 16px; margin:16px 0; font-size:14px;">' +
+          '<strong>溫馨提醒</strong><br>' +
+          '• 請於開場前 10 分鐘抵達<br>' +
+          '• 若需改期或取消,請於 24 小時前透過 Facebook 粉專私訊告知<br>' +
+          '• 24 小時內無故未到視同放棄,並需支付全額場地費' +
+        '</div>' +
+        '<p style="margin:16px 0 0; font-size:14px;">' +
+          '如有任何問題請私訊我們的粉專:<br>' +
+          '<a href="https://www.facebook.com/CaoMeMeGameStudio" style="color:#a8762a;">facebook.com/CaoMeMeGameStudio</a>' +
+        '</p>' +
+      '</div>' +
+      '<div style="background:#11100d; color:#f5ead3; padding:12px; text-align:center; font-size:12px; opacity:.7;">' +
+        '期待與您一起踏入故事 🌿' +
+      '</div>' +
+    '</div>';
+  const plain =
+    body.name + ' 您好,感謝您預約草咩咩遊戲工作室!\n\n' +
+    '預約編號: ' + id + '\n' +
+    '主題: ' + body.theme_title + '\n' +
+    '日期時間: ' + dt + '\n' +
+    '人數: ' + body.people + ' 人\n' +
+    '姓名: ' + body.name + '\n' +
+    '電話: ' + body.phone + '\n' +
+    (body.note ? ('備註: ' + body.note + '\n') : '') +
+    '\n溫馨提醒:\n' +
+    '• 請於開場前 10 分鐘抵達\n' +
+    '• 改期/取消請於 24 小時前透過 FB 粉專私訊告知\n' +
+    '• 24 小時內無故未到視同放棄,並需支付全額場地費\n\n' +
+    '粉專: https://www.facebook.com/CaoMeMeGameStudio\n';
+  MailApp.sendEmail({
+    to: to,
+    subject: subject,
+    htmlBody: html,
+    body: plain,
+    name: '草咩咩遊戲工作室'
+  });
+}
+
+function tableRow_(label, value) {
+  return '<tr>' +
+    '<td style="padding:8px 12px; background:#f5ead3; border:1px solid #e0d4b0; width:30%; font-weight:bold;">' + escapeHtml_(label) + '</td>' +
+    '<td style="padding:8px 12px; background:#fff; border:1px solid #e0d4b0;">' + escapeHtml_(String(value)) + '</td>' +
+  '</tr>';
+}
+
+function escapeHtml_(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function sendNotificationEmail_(body, id) {
@@ -809,9 +908,9 @@ function priceFromTable_(prices, themeId, people) {
 
 const ONSITE_MAX_SLOTS = 6;
 const ONSITE_THEME_ORDER = ['daughter', 'hamel', 'ai', 'geppetto'];
-const ONSITE_THEME_COL_LABELS = ['場次', '小天使', '現金', '文化幣', '備註'];
+const ONSITE_THEME_COL_LABELS = ['場次', '小天使', '實習生', '現金', '文化幣', '備註'];
 // theme block 欄寬 (場次/預約人/人數/電話/收款/小天使/備註)
-const ONSITE_THEME_COL_WIDTHS = [70, 90, 80, 80, 110];
+const ONSITE_THEME_COL_WIDTHS = [70, 90, 90, 80, 80, 110];
 const ONSITE_ANGEL_OPTIONS = ['他口', '小飛', '鯨魚', '阿單', '阿葳', '美魚', 'Ling', '尤尤', '小悅'];
 
 // 每個小天使對應的格子背景色(條件式格式自動套用)
@@ -880,14 +979,15 @@ function rebuildOnsiteMonth_(yyyymm) {
         const themeCol = _onsiteThemeStartCol_(ti);
         for (let i = 0; i < slots.length; i++) {
           const row = dayStartRow + i;
-          // 欄位: 場次=themeCol+0, 小天使=+1, 現金=+2, 文化幣=+3, 備註=+4
+          // 欄位: 場次=themeCol+0, 小天使=+1, 實習生=+2, 現金=+3, 文化幣=+4, 備註=+5
           const angel = view.getRange(row, themeCol + 1).getValue();
-          const cash = view.getRange(row, themeCol + 2).getValue();
-          const coin = view.getRange(row, themeCol + 3).getValue();
-          const note = view.getRange(row, themeCol + 4).getValue();
-          if (cash !== '' || coin !== '' || angel !== '' || note !== '') {
+          const intern = view.getRange(row, themeCol + 2).getValue();
+          const cash = view.getRange(row, themeCol + 3).getValue();
+          const coin = view.getRange(row, themeCol + 4).getValue();
+          const note = view.getRange(row, themeCol + 5).getValue();
+          if (cash !== '' || coin !== '' || angel !== '' || intern !== '' || note !== '') {
             preserved[dateStr + '|' + themeId + '|' + slots[i]] = {
-              cash: cash, coin: coin, angel: angel, note: note
+              cash: cash, coin: coin, angel: angel, intern: intern, note: note
             };
           }
         }
@@ -895,6 +995,11 @@ function rebuildOnsiteMonth_(yyyymm) {
     }
   }
 
+  // 先清掉所有舊資料驗證 / 條件式格式 / 合併,避免新舊欄位錯位殘留
+  const wholeRange = view.getRange(1, 1, view.getMaxRows(), view.getMaxColumns());
+  wholeRange.clearDataValidations();
+  wholeRange.breakApart();
+  view.clearConditionalFormatRules();
   view.clear();
 
   // 2) 從 Bookings 抓本月所有 confirmed,建立 (date|theme|time -> booking) map
@@ -990,9 +1095,10 @@ function rebuildOnsiteMonth_(yyyymm) {
           });
         }
         if (p) {
-          row[startIdx + 2] = p.cash || '';
-          row[startIdx + 3] = p.coin || '';
-          row[startIdx + 4] = p.note || '';
+          row[startIdx + 2] = p.intern || '';
+          row[startIdx + 3] = p.cash || '';
+          row[startIdx + 4] = p.coin || '';
+          row[startIdx + 5] = p.note || '';
         }
       }
       data.push(row);
@@ -1010,10 +1116,10 @@ function rebuildOnsiteMonth_(yyyymm) {
       const coinCols = [];
       for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
         const startIdx = _onsiteThemeStartCol_(ti) - 1;
-        const colCash = _onsiteColLetter_(startIdx + 2 + 1);
-        const colCoin = _onsiteColLetter_(startIdx + 3 + 1);
-        subRow[startIdx + 2] = '=SUM(' + colCash + fr + ':' + colCash + lr + ')';
-        subRow[startIdx + 3] = '=SUM(' + colCoin + fr + ':' + colCoin + lr + ')';
+        const colCash = _onsiteColLetter_(startIdx + 3 + 1);
+        const colCoin = _onsiteColLetter_(startIdx + 4 + 1);
+        subRow[startIdx + 3] = '=SUM(' + colCash + fr + ':' + colCash + lr + ')';
+        subRow[startIdx + 4] = '=SUM(' + colCoin + fr + ':' + colCoin + lr + ')';
         cashCols.push(colCash);
         coinCols.push(colCoin);
       }
@@ -1041,10 +1147,10 @@ function rebuildOnsiteMonth_(yyyymm) {
   monthRow[1] = yyyymm + ' 本月總計';
   for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
     const startIdx = _onsiteThemeStartCol_(ti) - 1;
-    const colCash = _onsiteColLetter_(startIdx + 2 + 1);
-    const colCoin = _onsiteColLetter_(startIdx + 3 + 1);
-    monthRow[startIdx + 2] = '=SUMIFS(' + colCash + ':' + colCash + ', B:B, "*日結*")';
-    monthRow[startIdx + 3] = '=SUMIFS(' + colCoin + ':' + colCoin + ', B:B, "*日結*")';
+    const colCash = _onsiteColLetter_(startIdx + 3 + 1);
+    const colCoin = _onsiteColLetter_(startIdx + 4 + 1);
+    monthRow[startIdx + 3] = '=SUMIFS(' + colCash + ':' + colCash + ', B:B, "*日結*")';
+    monthRow[startIdx + 4] = '=SUMIFS(' + colCoin + ':' + colCoin + ', B:B, "*日結*")';
   }
   const colShouShouLetter = _onsiteColLetter_(totalCols - 1);
   const colTotalLetter = _onsiteColLetter_(totalCols);
@@ -1110,10 +1216,11 @@ function rebuildOnsiteMonth_(yyyymm) {
       .setFontWeight('bold');
   }
 
-  // 公休日染粉紅
+  // 公休日染粉紅 + 整塊(含日結列)所有欄位字靠右
   for (const r of closedDayRows) {
     view.getRange(r, 1, ONSITE_MAX_SLOTS + 1, totalCols)
-      .setBackground('#fadcdc');
+      .setBackground('#fadcdc')
+      .setHorizontalAlignment('right');
   }
 
   // 日結列染淺藍(與預約格的米黃明顯區分)
@@ -1138,6 +1245,15 @@ function rebuildOnsiteMonth_(yyyymm) {
   view.setColumnWidth(totalCols - 1, 100);  // 今日實收
   view.setColumnWidth(totalCols, 110);      // 今日總收益
 
+  // 數字欄位強制 NUMBER 格式 (避免被舊 TIME 格式吃掉,SUM 顯示成 0:00)
+  const maxR = view.getMaxRows();
+  for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
+    const startCol = _onsiteThemeStartCol_(ti);
+    view.getRange(1, startCol + 3, maxR, 1).setNumberFormat('#,##0'); // 現金
+    view.getRange(1, startCol + 4, maxR, 1).setNumberFormat('#,##0'); // 文化幣
+  }
+  view.getRange(1, totalCols - 1, maxR, 2).setNumberFormat('#,##0');  // 今日實收 / 今日總收益
+
   // 小天使選擇 → 對應顏色 (條件式格式;下拉選誰格子就染誰的色)
   const angelRanges = [];
   for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
@@ -1156,6 +1272,187 @@ function rebuildOnsiteMonth_(yyyymm) {
     );
   }
   view.setConditionalFormatRules(colorRules);
+
+  // 同步建立 / 更新營業報表分頁 (失敗不影響現場表)
+  try { syncToReport_(yyyymm); } catch (e) { Logger.log('syncToReport_ err: ' + e); }
+}
+
+/* ============================================================
+ * 營業報表同步: 在報表寫 IMPORTRANGE 直接抓現場表的日結
+ *   - 分頁名: 26/5月營業報表 (= {yy}/{m}月營業報表)
+ *   - 缺分頁時複製「空白月營業報表」範本並重新命名
+ *   - B/D/F/H = 各主題該日現金日結 (IMPORTRANGE)
+ *   - L = 4 主題該日文化幣加總 (IMPORTRANGE)
+ *   - K/O/J/M/N 等其他欄完全不動 (沿用報表既有公式 / 人工輸入)
+ *   - 第一次跑後,請開報表點允許 IMPORTRANGE 授權一次即可
+ * ============================================================ */
+
+function _reportTabName_(yyyymm) {
+  const yy = parseInt(yyyymm.substring(2, 4), 10);
+  const mm = parseInt(yyyymm.substring(5, 7), 10);
+  return yy + '/' + mm + '月營業報表';
+}
+
+// 不要 sync 的月份 (例:現場表沒有歷史資料,維持手工數字)
+const REPORT_SYNC_SKIP = { '2026-04': true };
+
+/**
+ * 確保報表分頁有正確的日期列數 (28/29/30/31),在總計列前面插入或刪除列。
+ * 並更新總計列的 SUM 公式範圍。
+ */
+function _ensureMonthRows_(tab, daysInMonth) {
+  const lastRow = tab.getLastRow();
+  const aValues = tab.getRange(1, 1, Math.max(lastRow, 35), 1).getValues();
+  let totalRow = -1;
+  for (let i = 0; i < aValues.length; i++) {
+    if (String(aValues[i][0]).trim() === '總計') { totalRow = i + 1; break; }
+  }
+  if (totalRow < 0) return; // 找不到總計列,異常不動
+  const expectedTotalRow = daysInMonth + 2; // header row 1 + N 個日期列
+  if (totalRow > expectedTotalRow) {
+    tab.deleteRows(expectedTotalRow, totalRow - expectedTotalRow);
+  } else if (totalRow < expectedTotalRow) {
+    tab.insertRowsBefore(totalRow, expectedTotalRow - totalRow);
+  }
+  // A2..A{daysInMonth+1} 填日期數字 1..daysInMonth
+  const dayLabels = [];
+  for (let d = 1; d <= daysInMonth; d++) dayLabels.push([d]);
+  tab.getRange(2, 1, daysInMonth, 1).setValues(dayLabels);
+  // 總計列公式 (跟著新位置走)
+  const tr = expectedTotalRow;
+  tab.getRange(tr, 1).setValue('總計');
+  const lastDayRow = tr - 1;
+  tab.getRange('B' + tr).setFormula('=SUM(B2:B' + lastDayRow + ')');
+  tab.getRange('D' + tr).setFormula('=SUM(D2:D' + lastDayRow + ')');
+  tab.getRange('F' + tr).setFormula('=SUM(F2:F' + lastDayRow + ')');
+  tab.getRange('H' + tr).setFormula('=SUM(H2:H' + lastDayRow + ')');
+  tab.getRange('J' + tr).setFormula('=SUM(J2:J' + lastDayRow + ')');
+  tab.getRange('K' + tr).setFormula('=B' + tr + '+D' + tr + '+F' + tr + '+H' + tr + '+J' + tr);
+  tab.getRange('L' + tr).setFormula('=SUM(L2:L' + lastDayRow + ')');
+  tab.getRange('M' + tr).setFormula('=SUM(M2:M' + lastDayRow + ')');
+  tab.getRange('O' + tr).setFormula('=K' + tr + '-M' + tr + '-L' + tr);
+  tab.getRange('R' + tr).setFormula('=SUM(R2:R' + lastDayRow + ')');
+}
+
+/**
+ * 從 yyyymm 算上一個月 (例: '2026-06' -> '2026-05')
+ */
+function _prevYYYYMM_(yyyymm) {
+  const parts = yyyymm.split('-').map(Number);
+  const d = new Date(parts[0], parts[1] - 2, 1); // m - 2 因為 JS month 0-indexed,再減 1
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return y + '-' + m;
+}
+
+/**
+ * 設置「錢箱現金」欄 (S 欄): 從 26/6 起生效
+ *   - S1 = '錢箱現金'
+ *   - day d (row d+1): S = O - R
+ *   - day 1 額外加: 上個月 S 總計 (如果上個月有此欄)
+ *   - 總計列 = SUM(S)
+ */
+function _setCashBoxColumn_(tab, yyyymm, daysInMonth, reportSS) {
+  if (yyyymm < '2026-06') return;
+  tab.getRange(1, 19).setValue('錢箱現金'); // S1
+  const lastDayRow = daysInMonth + 1;
+
+  // 看上個月是否已啟用此欄 → 是的話 day 1 帶上一月總計
+  let carry = '';
+  const prevYYYYMM = _prevYYYYMM_(yyyymm);
+  const prevTab = reportSS.getSheetByName(_reportTabName_(prevYYYYMM));
+  if (prevTab) {
+    const prevHeader = String(prevTab.getRange(1, 19).getValue() || '');
+    if (prevHeader === '錢箱現金') {
+      const prevParts = prevYYYYMM.split('-').map(Number);
+      const prevDays = new Date(prevParts[0], prevParts[1], 0).getDate();
+      const prevTotalRow = prevDays + 2;
+      carry = "+IFERROR('" + _reportTabName_(prevYYYYMM) + "'!S" + prevTotalRow + ",0)";
+    }
+  }
+
+  // day 1: S2 = O2-R2 (+ carry)
+  tab.getRange('S2').setFormula('=O2-R2' + carry);
+  // day 2..N
+  for (let r = 3; r <= lastDayRow; r++) {
+    tab.getRange('S' + r).setFormula('=O' + r + '-R' + r);
+  }
+  // 總計
+  const tr = lastDayRow + 1;
+  tab.getRange('S' + tr).setFormula('=SUM(S2:S' + lastDayRow + ')');
+}
+
+function syncToReport_(yyyymm) {
+  if (!REPORT_SHEET_ID || !ONSITE_SHEET_ID) return;
+  if (REPORT_SYNC_SKIP[yyyymm]) { Logger.log('skip sync: ' + yyyymm); return; }
+  const reportSS = SpreadsheetApp.openById(REPORT_SHEET_ID);
+  const tabName = _reportTabName_(yyyymm);
+  let tab = reportSS.getSheetByName(tabName);
+  if (!tab) {
+    const tpl = reportSS.getSheetByName(REPORT_TEMPLATE_TAB);
+    if (!tpl) {
+      Logger.log('找不到範本分頁: ' + REPORT_TEMPLATE_TAB);
+      return;
+    }
+    tab = tpl.copyTo(reportSS);
+    tab.setName(tabName);
+    const mm = parseInt(yyyymm.substring(5, 7), 10);
+    try { tab.getRange(1, 1).setValue(mm + '月'); } catch (e) {}
+  }
+
+  const parts = yyyymm.split('-').map(Number);
+  const y = parts[0], m = parts[1];
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const ID = ONSITE_SHEET_ID;
+
+  // 確保日期列數正確 (28/29/30/31) + 總計列在對的位置
+  _ensureMonthRows_(tab, daysInMonth);
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    // 現場表日結列 (1-indexed): header 2 + 前 d-1 天 * 7 + 6 場次 + 1 = 2 + d*7
+    const onsiteSubRow = 2 + d * ONSITE_DAY_ROWS;
+    const reportRow = d + 1;
+    // 保險:報表 A 欄該列必須是日期數字 d,否則 (例如 '總計') 跳過避免覆寫 SUM
+    const aCell = tab.getRange(reportRow, 1).getValue();
+    if (Number(aCell) !== d) { Logger.log(yyyymm + ' skip row ' + reportRow + ' (A=' + aCell + ')'); continue; }
+
+    // 每主題 (現金 + 文化幣) → 報表對應欄
+    for (const themeId in REPORT_THEME_MAP) {
+      const map = REPORT_THEME_MAP[themeId];
+      const cashRng = "'" + yyyymm + "'!" + map.onsiteCash + onsiteSubRow;
+      const coinRng = "'" + yyyymm + "'!" + map.onsiteCoin + onsiteSubRow;
+      const formula = '=IFERROR(IMPORTRANGE("' + ID + '","' + cashRng + '"),0)+IFERROR(IMPORTRANGE("' + ID + '","' + coinRng + '"),0)';
+      tab.getRange(map.reportCol + reportRow).setFormula(formula);
+    }
+
+    // L = 4 主題文化幣加總
+    const coinParts = [];
+    for (const themeId in REPORT_THEME_MAP) {
+      const map = REPORT_THEME_MAP[themeId];
+      coinParts.push('IFERROR(IMPORTRANGE("' + ID + '","\'' + yyyymm + "'!" + map.onsiteCoin + onsiteSubRow + '"),0)');
+    }
+    tab.getRange('L' + reportRow).setFormula('=' + coinParts.join('+'));
+  }
+
+  // 錢箱現金欄 (26/6 起)
+  _setCashBoxColumn_(tab, yyyymm, daysInMonth, reportSS);
+}
+
+/**
+ * 一鍵把現場表所有月份分頁同步到營業報表 (手動跑一次回填,日常自動)。
+ */
+function syncAllToReport() {
+  if (!ONSITE_SHEET_ID) return;
+  const ss = SpreadsheetApp.openById(ONSITE_SHEET_ID);
+  const months = [];
+  ss.getSheets().forEach(function (sh) {
+    if (/^\d{4}-\d{2}$/.test(sh.getName())) months.push(sh.getName());
+  });
+  months.sort();
+  for (const m of months) {
+    try { syncToReport_(m); } catch (e) { Logger.log(m + ' err: ' + e); }
+  }
+  Logger.log('Synced report months: ' + months.join(', '));
 }
 
 /**
@@ -1220,13 +1517,22 @@ function syncAllToOnsiteV2() {
 function rebuildAllOnsite() {
   if (!ONSITE_SHEET_ID) return;
   const ss = SpreadsheetApp.openById(ONSITE_SHEET_ID);
-  const months = [];
+  const monthSet = {};
+  // 1) 現場表已存在的月份分頁
   ss.getSheets().forEach(function (sh) {
-    if (/^\d{4}-\d{2}$/.test(sh.getName())) {
-      months.push(sh.getName());
-    }
+    if (/^\d{4}-\d{2}$/.test(sh.getName())) monthSet[sh.getName()] = true;
   });
-  months.sort();
+  // 2) Bookings 裡有預約的月份(會自動補建現場表還沒有的分頁)
+  const src = ensureSheet_();
+  const last = src.getLastRow();
+  if (last >= 2) {
+    const dates = src.getRange(2, 5, last - 1, 1).getValues();
+    for (const row of dates) {
+      const d = formatDate_(row[0]);
+      if (d && /^\d{4}-\d{2}/.test(d)) monthSet[d.substring(0, 7)] = true;
+    }
+  }
+  const months = Object.keys(monthSet).sort();
   for (const m of months) {
     rebuildOnsiteMonth_(m);
   }
