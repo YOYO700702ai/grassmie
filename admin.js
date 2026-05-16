@@ -70,7 +70,14 @@ async function loadDay() {
   const res = await api("GET", { action: "list_bookings", date: CURRENT_DATE, status: "all" });
   if (!res.ok) { toast("讀取失敗:" + res.error, "err"); return; }
   DAY_STATE = {};
-  for (const b of res.data) DAY_STATE[`${b.theme_id}|${b.time}`] = b;
+  // confirmed > blocked > cancelled (忽略 cancelled,confirmed 蓋過 blocked)
+  const rank = { confirmed: 3, blocked: 2, cancelled: 0 };
+  for (const b of res.data) {
+    if (b.status === "cancelled") continue;
+    const key = `${b.theme_id}|${b.time}`;
+    const prev = DAY_STATE[key];
+    if (!prev || (rank[b.status]||0) > (rank[prev.status]||0)) DAY_STATE[key] = b;
+  }
   renderGrid();
 }
 
