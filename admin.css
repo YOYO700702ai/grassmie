@@ -27,6 +27,16 @@ table#grid td.time { background: #fff; font-weight: 600; font-size: 14px; paddin
 .cell.blocked { background: #fadcdc; color: #c44; }
 .cell.booked { background: #fff4d6; color: #a8762a; cursor: not-allowed; }
 .cell.closed-day { background: #eee; color: #999; cursor: not-allowed; }
+.cell.pending { outline: 3px dashed #a8762a; outline-offset: -3px; position: relative; }
+.cell.pending::after { content: '*'; position: absolute; top: 2px; right: 6px; font-size: 16px; color: #a8762a; font-weight: 900; }
+
+.confirm-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #11100d; color: #f5ead3; padding: 12px 20px; display: flex; align-items: center; gap: 12px; box-shadow: 0 -4px 16px rgba(0,0,0,.2); z-index: 50; }
+.confirm-bar span { flex: 1; font-weight: 700; font-size: 16px; }
+.confirm-bar button { padding: 10px 24px; border: none; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 15px; }
+.confirm-bar button#confirmBtn { background: #d4a72a; color: #11100d; }
+.confirm-bar button#confirmBtn:hover { background: #e8b938; }
+.confirm-bar button#confirmBtn:disabled { background: #999; cursor: wait; }
+.confirm-bar button.ghost { background: transparent; color: #f5ead3; border: 1px solid #f5ead3; }
 
 .legend { margin-top: 16px; font-size: 13px; color: #7a7568; text-align: center; }
 

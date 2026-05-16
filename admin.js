@@ -14,7 +14,7 @@ function toast(msg, kind) {
   el.textContent = msg;
   el.className = kind || "";
   el.hidden = false;
-  setTimeout(() => el.hidden = true, 2000);
+  setTimeout(() => el.hidden = true, 2200);
 }
 function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -48,13 +48,16 @@ function enterApp() {
   document.getElementById("adminApp").hidden = false;
   const di = document.getElementById("dateInput");
   di.value = toDateStr(new Date());
-  di.addEventListener("change", loadDay);
-  document.getElementById("refreshBtn").addEventListener("click", loadDay);
+  di.addEventListener("change", () => { PENDING = {}; loadDay(); });
+  document.getElementById("refreshBtn").addEventListener("click", () => { PENDING = {}; loadDay(); });
+  document.getElementById("confirmBtn").addEventListener("click", confirmChanges);
+  document.getElementById("cancelBtn").addEventListener("click", () => { PENDING = {}; renderGrid(); updateBar(); });
   loadDay();
 }
 
 let CURRENT_DATE = "";
-let DAY_STATE = {};
+let DAY_STATE = {}; // key -> 已落地 booking row
+let PENDING = {};   // key -> "close" | "reopen"
 
 async function loadDay() {
   CURRENT_DATE = document.getElementById("dateInput").value;
@@ -64,13 +67,12 @@ async function loadDay() {
   const note = document.getElementById("dateNote");
   const grid = document.getElementById("grid");
   note.textContent = `${CURRENT_DATE}(週${"日一二三四五六"[dow]})${dow===3?' 公休':''}`;
-  if (dow === 3) { grid.innerHTML = ""; return; }
+  if (dow === 3) { grid.innerHTML = ""; updateBar(); return; }
   grid.innerHTML = "<tr><td colspan='4' style='padding:16px;text-align:center;background:#fff;border-radius:6px'>載入中…</td></tr>";
 
   const res = await api("GET", { action: "list_bookings", date: CURRENT_DATE, status: "all" });
   if (!res.ok) { toast("讀取失敗:" + res.error, "err"); return; }
   DAY_STATE = {};
-  // confirmed > blocked > cancelled (忽略 cancelled,confirmed 蓋過 blocked)
   const rank = { confirmed: 3, blocked: 2, cancelled: 0 };
   for (const b of res.data) {
     if (b.status === "cancelled") continue;
@@ -79,6 +81,23 @@ async function loadDay() {
     if (!prev || (rank[b.status]||0) > (rank[prev.status]||0)) DAY_STATE[key] = b;
   }
   renderGrid();
+  updateBar();
+}
+
+function statusOf(themeId, time) {
+  const b = DAY_STATE[`${themeId}|${time}`];
+  if (!b) return "free";
+  if (b.status === "blocked") return "blocked";
+  return "booked";
+}
+
+function effectiveStatus(themeId, time) {
+  const key = `${themeId}|${time}`;
+  const real = statusOf(themeId, time);
+  if (!PENDING[key]) return { real, shown: real, pending: false };
+  // 有待提交的變更
+  const next = PENDING[key] === "close" ? "blocked" : "free";
+  return { real, shown: next, pending: true };
 }
 
 function renderGrid() {
@@ -90,14 +109,12 @@ function renderGrid() {
     html += "<tr>";
     for (const t of THEMES) {
       const time = t.slots[i];
+      const { shown, real, pending } = effectiveStatus(t.id, time);
+      const label = shown === "free" ? "空" : shown === "blocked" ? "關" : "預";
       const b = DAY_STATE[`${t.id}|${time}`];
-      let status = "free", label = "空";
-      if (b) {
-        if (b.status === "blocked") { status = "blocked"; label = "關"; }
-        else { status = "booked"; label = "預"; }
-      }
       const title = b ? `${time} ${b.name||''} ${b.people||''}人` : time;
-      html += `<td><div class="cell ${status}" data-theme="${t.id}" data-time="${time}" data-status="${status}" title="${title}"><span class="t">${time}</span><span class="l">${label}</span></div></td>`;
+      const cls = `cell ${shown}${pending ? ' pending' : ''}`;
+      html += `<td><div class="${cls}" data-theme="${t.id}" data-time="${time}" data-real="${real}" title="${title}"><span class="t">${time}</span><span class="l">${label}</span></div></td>`;
     }
     html += "</tr>";
   }
@@ -105,21 +122,68 @@ function renderGrid() {
   grid.querySelectorAll(".cell").forEach((el) => el.addEventListener("click", () => onCellClick(el)));
 }
 
-async function onCellClick(el) {
-  const status = el.dataset.status;
-  const theme = el.dataset.theme;
-  const time = el.dataset.time;
-  if (status === "booked") { toast("已預約的不能改", "err"); return; }
-  el.style.opacity = ".5";
-  const action = status === "free" ? "close_slot" : "reopen_slot";
-  const res = await api("POST", { action, date: CURRENT_DATE, theme_id: theme, time, reason: "後台" });
-  el.style.opacity = "1";
-  if (res && res.ok) {
-    toast(status === "free" ? "已關閉" : "已重開", "ok");
-    loadDay();
-  } else {
-    toast("失敗:" + (res && res.error || "?"), "err");
-  }
+function onCellClick(el) {
+  const real = el.dataset.real;
+  if (real === "booked") { toast("已預約的不能改", "err"); return; }
+  const key = el.dataset.theme + "|" + el.dataset.time;
+  if (PENDING[key]) delete PENDING[key];
+  else PENDING[key] = real === "free" ? "close" : "reopen";
+  renderGrid();
+  updateBar();
+}
+
+function updateBar() {
+  const n = Object.keys(PENDING).length;
+  const bar = document.getElementById("confirmBar");
+  if (n === 0) { bar.hidden = true; return; }
+  bar.hidden = false;
+  let closes = 0, reopens = 0;
+  for (const k in PENDING) PENDING[k] === "close" ? closes++ : reopens++;
+  const parts = [];
+  if (closes) parts.push(`關 ${closes} 場`);
+  if (reopens) parts.push(`開 ${reopens} 場`);
+  document.getElementById("pendingCount").textContent = parts.join(' / ');
+}
+
+async function confirmChanges() {
+  const entries = Object.entries(PENDING);
+  if (entries.length === 0) return;
+  const btn = document.getElementById("confirmBtn");
+  btn.disabled = true;
+  btn.textContent = `送出中… (${entries.length})`;
+
+  const results = await Promise.allSettled(entries.map(([key, action]) => {
+    const [theme_id, time] = key.split('|');
+    const a = action === "close" ? "close_slot" : "reopen_slot";
+    return api("POST", { action: a, date: CURRENT_DATE, theme_id, time, reason: "後台" });
+  }));
+
+  let ok = 0, fail = 0;
+  const failedPending = {};
+  results.forEach((r, i) => {
+    const [key, action] = entries[i];
+    if (r.status === "fulfilled" && r.value && r.value.ok) {
+      ok++;
+      // 本地更新狀態,避免再撈 API
+      const [theme_id, time] = key.split('|');
+      if (action === "close") {
+        DAY_STATE[key] = { id: r.value.id, theme_id, time, status: "blocked", name: "(關閉) 後台" };
+      } else {
+        delete DAY_STATE[key];
+      }
+    } else {
+      fail++;
+      failedPending[key] = action;
+    }
+  });
+
+  PENDING = failedPending;
+  btn.disabled = false;
+  btn.textContent = "確定";
+  renderGrid();
+  updateBar();
+  if (fail === 0) toast(`完成 ${ok} 個變更`, "ok");
+  else toast(`成功 ${ok} 失敗 ${fail}`, "err");
 }
 
 document.addEventListener("DOMContentLoaded", bindPin);

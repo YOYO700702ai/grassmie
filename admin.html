@@ -26,8 +26,14 @@
       </div>
       <p id="dateNote" class="note"></p>
       <table id="grid"></table>
-      <p class="legend">點「空」→ 變「關」 / 點「關」→ 變「空」 / 「預」不可改</p>
+      <p class="legend">點「空」→ 標記要關 / 點「關」→ 標記要開 / 改完按「確定」一次送出</p>
     </section>
+
+    <div id="confirmBar" class="confirm-bar" hidden>
+      <span id="pendingCount"></span>
+      <button id="cancelBtn" class="ghost">取消</button>
+      <button id="confirmBtn">確定</button>
+    </div>
   </main>
   <div id="toast" hidden></div>
 </body>
