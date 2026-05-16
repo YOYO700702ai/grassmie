@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>後台 | 草咩咩</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/jpeg" href="https://i.ibb.co/Qj7x19LT/474636696-467764979719812-1819804518134389624-n.jpg">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="admin.css">
+  <script src="admin.js" defer></script>
+</head>
+<body>
+  <main>
+    <section id="pinGate" class="pin-gate">
+      <h1>草咩咩後台</h1>
+      <input type="password" id="pinInput" inputmode="numeric" maxlength="8" placeholder="PIN" autocomplete="off">
+      <button id="pinBtn">進入</button>
+      <p id="pinErr" class="err"></p>
+    </section>
+
+    <section id="adminApp" hidden>
+      <div class="toolbar">
+        <input type="date" id="dateInput">
+        <button id="refreshBtn" class="ghost">↻</button>
+      </div>
+      <p id="dateNote" class="note"></p>
+      <table id="grid"></table>
+      <p class="legend">點「空」→ 變「關」 / 點「關」→ 變「空」 / 「預」不可改</p>
+    </section>
+  </main>
+  <div id="toast" hidden></div>
+</body>
+</html>
