@@ -118,6 +118,7 @@ function doPost(e) {
     if (action === 'close_slot') return closeSlot_(body);
     if (action === 'reopen_slot') return reopenSlot_(body);
     if (action === 'batch_slot_ops') return batchSlotOps_(body);
+    if (action === 'move_booking') return moveBooking_(body);
     return jsonOut_({ ok: false, error: 'unknown action' });
   } catch (err) {
     return jsonOut_({ ok: false, error: String(err) });
@@ -825,6 +826,126 @@ function closeSlot_(body) {
  * body: { ops: [{op:'close'|'reopen', date, theme_id, time, reason?}] }
  * 回傳: { ok:true, results:[{ok, id?, error?}], summary:{ok, fail} }
  */
+/**
+ * 改期: 一個 lock 完成 cancel + create,中途失敗 rollback。
+ * body: { id, new_date, new_time, new_theme_id?, bypass_24h? }
+ * 流程:
+ *   1. 取得原 row;檢查 status === 'confirmed'
+ *   2. 新時段衝突檢查 (排除自己)
+ *   3. 先把原 row 改成 cancelled
+ *   4. appendRow 新 row;失敗時把原 row 改回 confirmed (rollback)
+ *   重建月份分頁 / 現場表同步等在 lock 外
+ */
+function moveBooking_(body) {
+  const id = (body.id || '').toString().trim();
+  if (!id) return jsonOut_({ ok: false, error: 'id required' });
+  const newDate = (body.new_date || '').toString().trim();
+  const newTime = (body.new_time || '').toString().trim();
+  if (!newDate || !newTime) return jsonOut_({ ok: false, error: 'new_date / new_time required' });
+
+  // 24h 擋 (除非 bypass_24h:true)
+  if (!body.bypass_24h) {
+    try {
+      const slotDt = new Date(newDate + 'T' + (newTime.length === 4 ? '0' : '') + newTime + ':00+08:00');
+      if (slotDt.getTime() - Date.now() < 24 * 60 * 60 * 1000) {
+        return jsonOut_({ ok: false, error: '24 小時內的場次無法改期', too_soon: true });
+      }
+    } catch (e) {}
+  }
+
+  let oldData, newId, newData, oldDate;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const found = findRowById_(id);
+    if (!found) return jsonOut_({ ok: false, error: '找不到預約: ' + id });
+    oldData = readRow_(found.sheet, found.rowIndex);
+    if (oldData.status !== 'confirmed') {
+      return jsonOut_({ ok: false, error: '原預約狀態為 ' + oldData.status + ',無法改期' });
+    }
+    const themeId = body.new_theme_id ? String(body.new_theme_id) : oldData.theme_id;
+    const theme = THEMES.find(function (t) { return t.id === themeId; });
+    if (!theme) return jsonOut_({ ok: false, error: '未知 theme_id: ' + themeId });
+    oldDate = oldData.date;
+
+    // 衝突檢查 (排除原 row 自己)
+    const sheet = found.sheet;
+    const last = sheet.getLastRow();
+    if (last >= 2) {
+      const values = sheet.getRange(2, 1, last - 1, HEADERS.length).getValues();
+      for (let i = 0; i < values.length; i++) {
+        if (i + 2 === found.rowIndex) continue;
+        const row = values[i];
+        const status = String(row[11] || 'confirmed');
+        if (status === 'cancelled') continue;
+        if (String(row[2]) === themeId &&
+            formatDate_(row[4]) === newDate &&
+            formatTime_(row[5]) === newTime) {
+          return jsonOut_({
+            ok: false,
+            error: '新時段已被佔用 (' + (row[7] || '') + '),無法改期',
+            conflict: true,
+            conflict_id: String(row[0])
+          });
+        }
+      }
+    }
+
+    // 先 flip 原 row → cancelled
+    sheet.getRange(found.rowIndex, 12).setValue('cancelled');
+
+    // append 新 row;失敗 rollback
+    try {
+      newId = 'BK' + Date.now() + Math.floor(Math.random() * 1000);
+      const moveNote = '改期自 ' + oldData.date + ' ' + oldData.time + ' (原單 ' + id + ')';
+      const mergedNote = oldData.note ? (oldData.note + ' / ' + moveNote) : moveNote;
+      sheet.appendRow([
+        newId,
+        new Date().toISOString(),
+        themeId,
+        theme.title,
+        newDate,
+        newTime,
+        oldData.people,
+        oldData.name,
+        oldData.phone,
+        oldData.email || '',
+        mergedNote,
+        'confirmed'
+      ]);
+      newData = {
+        id: newId, theme_id: themeId, theme_title: theme.title,
+        date: newDate, time: newTime, people: oldData.people,
+        name: oldData.name, phone: oldData.phone, email: oldData.email,
+        note: mergedNote, status: 'confirmed'
+      };
+    } catch (appendErr) {
+      // rollback: 把原 row 改回 confirmed
+      try { sheet.getRange(found.rowIndex, 12).setValue('confirmed'); } catch (_) {}
+      return jsonOut_({ ok: false, error: 'append 失敗,已 rollback: ' + appendErr, rolled_back: true });
+    }
+  } finally {
+    lock.releaseLock();
+  }
+
+  // lock 外:重建月份分頁 + 現場表同步 (失敗不影響核心)
+  try { rebuildMonthSheet_(oldDate.substring(0, 7)); } catch (e) {}
+  if (newDate.substring(0, 7) !== oldDate.substring(0, 7)) {
+    try { rebuildMonthSheet_(newDate.substring(0, 7)); } catch (e) {}
+  }
+  try { syncOnsiteForDate_(oldDate); } catch (e) {}
+  try { syncOnsiteForDate_(newDate); } catch (e) {}
+
+  return jsonOut_({
+    ok: true,
+    old_id: id,
+    new_id: newId,
+    from: { date: oldDate, time: oldData.time, theme_id: oldData.theme_id },
+    to:   { date: newDate, time: newTime, theme_id: newData.theme_id },
+    data: newData
+  });
+}
+
 function batchSlotOps_(body) {
   // 直接呼叫各自帶 lock 的 closeSlot_/reopenSlot_,序列執行 (同一個 execution 不會 deadlock)
   const ops = Array.isArray(body.ops) ? body.ops : [];
