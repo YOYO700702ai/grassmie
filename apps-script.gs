@@ -169,8 +169,10 @@ function createBooking_(body) {
     } catch (e) { /* 解析失敗就放行,讓下面照常驗 */ }
   }
 
+  // Lock 只保護: 衝突檢查 + 寫一列 (重操作移到 lock 外)
+  let id;
   const lock = LockService.getScriptLock();
-  lock.waitLock(8000);
+  lock.waitLock(30000);
   try {
     const sheet = ensureSheet_();
     const last = sheet.getLastRow();
@@ -186,43 +188,23 @@ function createBooking_(body) {
         }
       }
     }
-
-    const id = 'BK' + Date.now() + Math.floor(Math.random() * 1000);
+    id = 'BK' + Date.now() + Math.floor(Math.random() * 1000);
     sheet.appendRow([
-      id,
-      new Date().toISOString(),
-      body.theme_id,
-      body.theme_title,
-      body.date,
-      body.time,
-      body.people,
-      body.name,
-      body.phone,
-      body.email || '',
-      body.note || '',
-      'confirmed'
+      id, new Date().toISOString(), body.theme_id, body.theme_title,
+      body.date, body.time, body.people, body.name, body.phone,
+      body.email || '', body.note || '', 'confirmed'
     ]);
-
-    try {
-      const yyyymm = String(body.date).substring(0, 7);
-      rebuildMonthSheet_(yyyymm);
-    } catch (viewErr) {
-      // 月份視圖更新失敗不影響預約成功
-    }
-
-    try {
-      appendToOnsite_(Object.assign({}, body, { id: id }));
-    } catch (onsiteErr) {
-      // 現場收款表寫入失敗不影響預約成功
-    }
-
-    try { sendNotificationEmail_(body, id); } catch (mailErr) {}
-    try { sendCustomerConfirmation_(body, id); } catch (mailErr) {}
-
-    return jsonOut_({ ok: true, id: id });
   } finally {
     lock.releaseLock();
   }
+
+  // 重操作放到 lock 外,失敗都不影響預約已落地
+  try { rebuildMonthSheet_(String(body.date).substring(0, 7)); } catch (e) {}
+  try { appendToOnsite_(Object.assign({}, body, { id: id })); } catch (e) {}
+  try { sendNotificationEmail_(body, id); } catch (e) {}
+  try { sendCustomerConfirmation_(body, id); } catch (e) {}
+
+  return jsonOut_({ ok: true, id: id });
 }
 
 function sendCustomerConfirmation_(body, id) {
@@ -723,23 +705,24 @@ function getBooking_(params) {
 function cancelBooking_(body) {
   const id = (body.id || '').toString().trim();
   if (!id) return jsonOut_({ ok: false, error: 'id required' });
+  let before, after;
   const lock = LockService.getScriptLock();
-  lock.waitLock(8000);
+  lock.waitLock(30000);
   try {
     const found = findRowById_(id);
     if (!found) return jsonOut_({ ok: false, error: '找不到預約: ' + id });
-    const before = readRow_(found.sheet, found.rowIndex);
+    before = readRow_(found.sheet, found.rowIndex);
     if (before.status === 'cancelled') {
       return jsonOut_({ ok: true, data: before, changed: false, note: '本來就是 cancelled' });
     }
     found.sheet.getRange(found.rowIndex, 12).setValue('cancelled');
-    try { rebuildMonthSheet_(before.date.substring(0, 7)); } catch (e) {}
-    syncOnsiteForDate_(before.date);
-    const after = readRow_(found.sheet, found.rowIndex);
-    return jsonOut_({ ok: true, data: after, changed: true });
+    after = readRow_(found.sheet, found.rowIndex);
   } finally {
     lock.releaseLock();
   }
+  try { rebuildMonthSheet_(before.date.substring(0, 7)); } catch (e) {}
+  try { syncOnsiteForDate_(before.date); } catch (e) {}
+  return jsonOut_({ ok: true, data: after, changed: true });
 }
 
 function updateBooking_(body) {
@@ -748,13 +731,13 @@ function updateBooking_(body) {
   if (body.date || body.time || body.theme_id) {
     return jsonOut_({ ok: false, error: '不支援改日期/時間/主題,請先 cancel_booking 再 book 一筆新的' });
   }
+  let before, after, updates = [];
   const lock = LockService.getScriptLock();
-  lock.waitLock(8000);
+  lock.waitLock(30000);
   try {
     const found = findRowById_(id);
     if (!found) return jsonOut_({ ok: false, error: '找不到預約: ' + id });
-    const before = readRow_(found.sheet, found.rowIndex);
-    const updates = [];
+    before = readRow_(found.sheet, found.rowIndex);
     const sheet = found.sheet;
     const r = found.rowIndex;
     if (body.people !== undefined && body.people !== null && body.people !== '') {
@@ -780,13 +763,13 @@ function updateBooking_(body) {
     if (updates.length === 0) {
       return jsonOut_({ ok: true, data: before, changed: false, note: '沒提供要更新的欄位' });
     }
-    try { rebuildMonthSheet_(before.date.substring(0, 7)); } catch (e) {}
-    syncOnsiteForDate_(before.date);
-    const after = readRow_(sheet, r);
-    return jsonOut_({ ok: true, data: after, changed: true, updated: updates });
+    after = readRow_(sheet, r);
   } finally {
     lock.releaseLock();
   }
+  try { rebuildMonthSheet_(before.date.substring(0, 7)); } catch (e) {}
+  try { syncOnsiteForDate_(before.date); } catch (e) {}
+  return jsonOut_({ ok: true, data: after, changed: true, updated: updates });
 }
 
 function closeSlot_(body) {
@@ -798,8 +781,9 @@ function closeSlot_(body) {
   const theme = THEMES.find(function (t) { return t.id === body.theme_id; });
   if (!theme) return jsonOut_({ ok: false, error: '未知 theme_id: ' + body.theme_id });
 
+  let id, earlyResp = null;
   const lock = LockService.getScriptLock();
-  lock.waitLock(8000);
+  lock.waitLock(30000);
   try {
     const sheet = ensureSheet_();
     const last = sheet.getLastRow();
@@ -813,37 +797,27 @@ function closeSlot_(body) {
         const rTime = formatTime_(row[5]);
         if (rTheme === body.theme_id && rDate === body.date && rTime === body.time) {
           if (status === 'confirmed') {
-            return jsonOut_({
-              ok: false,
-              error: '此時段已有預約 (' + row[7] + '),請先取消那筆才能關閉',
-              conflict_id: String(row[0])
-            });
+            earlyResp = { ok: false, error: '此時段已有預約 (' + row[7] + '),請先取消那筆才能關閉', conflict_id: String(row[0]) };
+            break;
           }
           if (status === 'blocked') {
-            return jsonOut_({ ok: true, id: String(row[0]), changed: false, note: '此時段已被關閉' });
+            earlyResp = { ok: true, id: String(row[0]), changed: false, note: '此時段已被關閉' };
+            break;
           }
         }
       }
     }
-
-    const id = 'BLK' + Date.now() + Math.floor(Math.random() * 1000);
+    if (earlyResp) return jsonOut_(earlyResp);
+    id = 'BLK' + Date.now() + Math.floor(Math.random() * 1000);
     sheet.appendRow([
-      id,
-      new Date().toISOString(),
-      body.theme_id,
-      theme.title,
-      body.date,
-      body.time,
-      0,
-      '(關閉) ' + reason,
-      '', '', '',
-      'blocked'
+      id, new Date().toISOString(), body.theme_id, theme.title,
+      body.date, body.time, 0, '(關閉) ' + reason, '', '', '', 'blocked'
     ]);
-    try { rebuildMonthSheet_(String(body.date).substring(0, 7)); } catch (e) {}
-    return jsonOut_({ ok: true, id: id, changed: true });
   } finally {
     lock.releaseLock();
   }
+  try { rebuildMonthSheet_(String(body.date).substring(0, 7)); } catch (e) {}
+  return jsonOut_({ ok: true, id: id, changed: true });
 }
 
 /**
@@ -878,8 +852,9 @@ function reopenSlot_(body) {
   for (const f of required) {
     if (!body[f]) return jsonOut_({ ok: false, error: '缺少欄位: ' + f });
   }
+  let reopenedId = null;
   const lock = LockService.getScriptLock();
-  lock.waitLock(8000);
+  lock.waitLock(30000);
   try {
     const sheet = ensureSheet_();
     const last = sheet.getLastRow();
@@ -894,14 +869,16 @@ function reopenSlot_(body) {
       const rTime = formatTime_(row[5]);
       if (rTheme === body.theme_id && rDate === body.date && rTime === body.time) {
         sheet.getRange(i + 2, 12).setValue('cancelled');
-        try { rebuildMonthSheet_(String(body.date).substring(0, 7)); } catch (e) {}
-        return jsonOut_({ ok: true, id: String(row[0]), changed: true });
+        reopenedId = String(row[0]);
+        break;
       }
     }
-    return jsonOut_({ ok: false, error: '找不到該時段的關閉紀錄' });
+    if (!reopenedId) return jsonOut_({ ok: false, error: '找不到該時段的關閉紀錄' });
   } finally {
     lock.releaseLock();
   }
+  try { rebuildMonthSheet_(String(body.date).substring(0, 7)); } catch (e) {}
+  return jsonOut_({ ok: true, id: reopenedId, changed: true });
 }
 
 
