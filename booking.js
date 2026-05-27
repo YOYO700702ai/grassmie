@@ -154,9 +154,12 @@ function renderStep2() {
   for (let i = range.min; i <= range.max; i++) {
     options.push(`<button type="button" class="people-pill ${state.people === i ? "selected" : ""}" data-people="${i}">${i} 人</button>`);
   }
-  const closedNote = state.date && isClosedDay(state.date)
-    ? `<p class="bk-note error"><i data-lucide="x-circle"></i>每週三公休,請另選日期</p>`
-    : "";
+  let closedNote = "";
+  if (state.date && isClosedDay(state.date)) {
+    closedNote = `<p class="bk-note error"><i data-lucide="x-circle"></i>每週三公休,請另選日期</p>`;
+  } else if (state.date && state._allBlocked) {
+    closedNote = `<p class="bk-note error"><i data-lucide="x-circle"></i>這天該主題已全部訂滿/暫不開放,請另選日期</p>`;
+  }
   return `
     <h2 class="step-title">選擇日期與人數</h2>
     <p class="bk-current"><span>目前主題</span><strong>${theme.title}</strong></p>
@@ -178,7 +181,7 @@ function renderStep2() {
     ${closedNote}
     <div class="bk-actions">
       <button class="button ghost" id="backBtn" type="button"><i data-lucide="arrow-left"></i>上一步</button>
-      <button class="button primary" id="nextBtn" type="button" ${state.date && state.people && !isClosedDay(state.date) ? "" : "disabled"}>
+      <button class="button primary" id="nextBtn" type="button" ${state.date && state.people && !isClosedDay(state.date) && !state._allBlocked ? "" : "disabled"}>
         下一步 <i data-lucide="arrow-right"></i>
       </button>
     </div>
@@ -328,12 +331,30 @@ function bindHandlers() {
 
   const dateInput = document.getElementById("dateInput");
   if (dateInput) {
-    dateInput.addEventListener("change", (e) => {
+    dateInput.addEventListener("change", async (e) => {
       state.date = e.target.value;
       state.time = null;
       state.taken = [];
       state._loadedSlotKey = null;
+      state._allBlocked = false;
       render();
+      // 立刻檢查該日該主題還有沒有空場次,沒有就 disable 下一步
+      if (state.date && !isClosedDay(state.date)) {
+        const slots = slotsForThemeDate(state.themeId, state.date);
+        if (slots.length === 0) {
+          state._allBlocked = true; render(); return;
+        }
+        try {
+          const r = await fetch(`${API_URL}?action=slots&theme=${encodeURIComponent(state.themeId)}&date=${encodeURIComponent(state.date)}`);
+          const j = await r.json();
+          if (j.ok && Array.isArray(j.taken)) {
+            const taken = new Set(j.taken);
+            state.taken = j.taken;
+            state._allBlocked = slots.every((s) => taken.has(s));
+            render();
+          }
+        } catch (err) {}
+      }
     });
     // 點輸入框任何位置都打開日曆(部分瀏覽器只有點 icon 才開)
     dateInput.addEventListener("click", () => {
