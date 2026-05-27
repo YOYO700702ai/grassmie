@@ -181,8 +181,8 @@ function renderStep2() {
     ${closedNote}
     <div class="bk-actions">
       <button class="button ghost" id="backBtn" type="button"><i data-lucide="arrow-left"></i>上一步</button>
-      <button class="button primary" id="nextBtn" type="button" ${state.date && state.people && !isClosedDay(state.date) && !state._allBlocked ? "" : "disabled"}>
-        下一步 <i data-lucide="arrow-right"></i>
+      <button class="button primary" id="nextBtn" type="button" ${state.date && state.people && !isClosedDay(state.date) && !state._allBlocked && !state._loading ? "" : "disabled"}>
+        ${state._loading ? "載入場次中…" : "下一步"} <i data-lucide="arrow-right"></i>
       </button>
     </div>
   `;
@@ -201,13 +201,15 @@ function renderStep3() {
   const theme = getTheme();
   const slots = slotsForThemeDate(state.themeId, state.date);
   const taken = new Set(state.taken || []);
-  const isLoading = state._loading;
+  const slotKey = `${state.themeId}:${state.date}`;
+  const isLoading = state._loading || state._loadedSlotKey !== slotKey;
   const buttons = slots.map((t) => {
     const isTaken = taken.has(t);
     const selected = state.time === t;
-    return `<button type="button" class="slot-pill ${isTaken ? "taken" : ""} ${selected ? "selected" : ""}" data-slot="${t}" ${isTaken ? "disabled" : ""}>
+    const disabled = isTaken || isLoading;
+    return `<button type="button" class="slot-pill ${isTaken ? "taken" : ""} ${selected ? "selected" : ""} ${isLoading ? "loading" : ""}" data-slot="${t}" ${disabled ? "disabled" : ""}>
       <strong>${t}</strong>
-      <span>${isTaken ? "已預約" : "可預約"}</span>
+      <span>${isLoading ? "載入中…" : isTaken ? "已預約" : "可預約"}</span>
     </button>`;
   }).join("");
   const errNote = state._error
@@ -341,23 +343,24 @@ function bindHandlers() {
       state.taken = [];
       state._loadedSlotKey = null;
       state._allBlocked = false;
+      state._error = null;
       render();
-      // 立刻檢查該日該主題還有沒有空場次,沒有就 disable 下一步
       if (state.date && !isClosedDay(state.date)) {
         const slots = slotsForThemeDate(state.themeId, state.date);
-        if (slots.length === 0) {
-          state._allBlocked = true; render(); return;
-        }
+        if (slots.length === 0) { state._allBlocked = true; render(); return; }
+        state._loading = true;
+        render();
         try {
           const r = await fetch(`${API_URL}?action=slots&theme=${encodeURIComponent(state.themeId)}&date=${encodeURIComponent(state.date)}`);
           const j = await r.json();
           if (j.ok && Array.isArray(j.taken)) {
-            const taken = new Set(j.taken);
             state.taken = j.taken;
-            state._allBlocked = slots.every((s) => taken.has(s));
-            render();
+            state._loadedSlotKey = `${state.themeId}:${state.date}`;
+            state._allBlocked = slots.every((s) => new Set(j.taken).has(s));
           }
         } catch (err) {}
+        state._loading = false;
+        render();
       }
     });
     // 點輸入框任何位置都打開日曆(部分瀏覽器只有點 icon 才開)
