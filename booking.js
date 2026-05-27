@@ -409,6 +409,20 @@ async function onSubmit() {
   }
 
   try {
+    // 送出前重抓一次 taken,避免使用者開頁面後管理員才關掉而看到的舊資料
+    try {
+      const tr = await fetch(`${API_URL}?action=slots&theme=${encodeURIComponent(state.themeId)}&date=${encodeURIComponent(state.date)}`);
+      const tj = await tr.json();
+      if (tj.ok && Array.isArray(tj.taken) && tj.taken.includes(state.time)) {
+        state.taken = tj.taken;
+        state._submitting = false;
+        state._error = "你選的時段剛剛被佔走了,請選別的時段";
+        state.time = null;
+        setStep(3);
+        return;
+      }
+    } catch (e) { /* 重抓失敗就讓後端擋,不阻擋送出 */ }
+
     const r = await fetch(API_URL, {
       method: "POST",
       // Apps Script 對 fetch 預檢敏感; text/plain 可避開 CORS preflight
