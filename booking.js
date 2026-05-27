@@ -210,9 +210,13 @@ function renderStep3() {
       <span>${isTaken ? "已預約" : "可預約"}</span>
     </button>`;
   }).join("");
+  const errNote = state._error
+    ? `<p class="bk-note error"><i data-lucide="alert-triangle"></i>${state._error}</p>`
+    : "";
   return `
     <h2 class="step-title">選擇場次時間</h2>
     <p class="bk-current"><span>預約內容</span><strong>${theme.title}</strong><strong>${state.date}</strong><strong>${state.people} 人</strong></p>
+    ${errNote}
     ${isLoading ? `<p class="bk-note"><i data-lucide="loader"></i>載入時段中…</p>` : ""}
     <div class="slot-grid">${buttons}</div>
     <p class="bk-hint">遊戲時間約 ${theme.time}。預約成功後請於開場前 10 分鐘抵達。</p>
@@ -374,6 +378,7 @@ function bindHandlers() {
   document.querySelectorAll(".slot-pill:not([disabled])").forEach((el) => {
     el.addEventListener("click", () => {
       state.time = el.dataset.slot;
+      state._error = null;
       render();
     });
   });
