@@ -111,6 +111,8 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents || '{}');
+    // Telegram webhook 進來的 payload 長這樣: { update_id:..., message:{...} }
+    if (body.update_id && body.message) return handleTelegramWebhook_(body);
     const action = (body.action || '').toLowerCase();
     if (action === 'book') return createBooking_(body);
     if (action === 'cancel_booking') return cancelBooking_(body);
@@ -207,6 +209,61 @@ function createBooking_(body) {
   try { sendTelegramNotify_(body, id); } catch (e) {}
 
   return jsonOut_({ ok: true, id: id });
+}
+
+/**
+ * 處理 Telegram 進來的訊息 (webhook)
+ *   /start  → 把該 chat_id 加進訂閱清單,回覆「已訂閱」
+ *   /stop   → 移除訂閱
+ *   /ping   → 回 pong (測試用)
+ */
+function handleTelegramWebhook_(body) {
+  var msg = body.message || {};
+  var chat = msg.chat || {};
+  var chatId = String(chat.id || '');
+  var text = String(msg.text || '').trim();
+  var name = (chat.first_name || '') + (chat.last_name ? ' ' + chat.last_name : '');
+  if (!chatId) return jsonOut_({ ok: true });
+
+  var props = PropertiesService.getScriptProperties();
+  var current = (props.getProperty('TELEGRAM_CHAT_IDS') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  var reply = '';
+
+  if (text === '/start' || text.indexOf('/start') === 0) {
+    if (current.indexOf(chatId) < 0) {
+      current.push(chatId);
+      props.setProperty('TELEGRAM_CHAT_IDS', current.join(','));
+      reply = '✅ ' + (name || '夥伴') + ',你已訂閱草咩咩預約通知!\n以後客人預約進來會自動推送給你 🌿';
+    } else {
+      reply = '你已經訂閱過囉 ✓\n以後客人預約進來會自動推送。';
+    }
+  } else if (text === '/stop') {
+    var idx = current.indexOf(chatId);
+    if (idx >= 0) {
+      current.splice(idx, 1);
+      props.setProperty('TELEGRAM_CHAT_IDS', current.join(','));
+      reply = '已取消訂閱。隨時可以再傳 /start 加回來。';
+    } else {
+      reply = '你本來就沒訂閱喔。';
+    }
+  } else if (text === '/ping') {
+    reply = 'pong 🌿';
+  } else {
+    reply = '可用指令:\n/start - 訂閱預約通知\n/stop - 取消訂閱\n/ping - 測試';
+  }
+
+  var token = props.getProperty('TELEGRAM_BOT_TOKEN');
+  if (token && reply) {
+    try {
+      UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ chat_id: chatId, text: reply }),
+        muteHttpExceptions: true
+      });
+    } catch (e) {}
+  }
+  return jsonOut_({ ok: true });
 }
 
 /**
