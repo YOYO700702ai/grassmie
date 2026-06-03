@@ -218,14 +218,25 @@ function createBooking_(body) {
  *   /ping   → 回 pong (測試用)
  */
 function handleTelegramWebhook_(body) {
+  var updateId = String(body.update_id || '');
+  var props = PropertiesService.getScriptProperties();
+
+  // update_id 去重: Telegram 因 Apps Script redirect 慢有時會重送 (避免夥伴被推 5 次)
+  if (updateId) {
+    var seenRaw = props.getProperty('TELEGRAM_SEEN_UPDATES') || '';
+    var seen = seenRaw.split(',').filter(Boolean);
+    if (seen.indexOf(updateId) >= 0) return jsonOut_({ ok: true, dup: true });
+    seen.push(updateId);
+    if (seen.length > 50) seen = seen.slice(-50);
+    props.setProperty('TELEGRAM_SEEN_UPDATES', seen.join(','));
+  }
+
   var msg = body.message || {};
   var chat = msg.chat || {};
   var chatId = String(chat.id || '');
   var text = String(msg.text || '').trim();
   var name = (chat.first_name || '') + (chat.last_name ? ' ' + chat.last_name : '');
   if (!chatId) return jsonOut_({ ok: true });
-
-  var props = PropertiesService.getScriptProperties();
   var current = (props.getProperty('TELEGRAM_CHAT_IDS') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   var reply = '';
 
@@ -276,6 +287,17 @@ function initTelegramConfig() {
     TELEGRAM_CHAT_IDS: 'PASTE_CHAT_ID_HERE'  // 多人用逗號分隔
   });
   Logger.log('Telegram 設定已寫入 (記得改成真實值)');
+}
+
+/** 在編輯器執行這個會主動推一封測試,順便逼出 UrlFetch 授權彈窗 */
+function testTelegramNotify() {
+  sendTelegramNotify_({
+    theme_title: '不存在的女兒',
+    date: '2026-06-20', time: '14:00',
+    people: 2, name: '老闆測試', phone: '0900-000-000',
+    note: 'testTelegramNotify 測試'
+  }, 'TEST-' + Date.now());
+  Logger.log('已嘗試送出 Telegram');
 }
 
 /**

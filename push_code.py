@@ -22,6 +22,7 @@ MANIFEST = {
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/script.send_mail",
         "https://www.googleapis.com/auth/script.scriptapp",
+        "https://www.googleapis.com/auth/script.external_request",
     ],
 }
 
