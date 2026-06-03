@@ -204,8 +204,57 @@ function createBooking_(body) {
   try { appendToOnsite_(Object.assign({}, body, { id: id })); } catch (e) {}
   try { sendNotificationEmail_(body, id); } catch (e) {}
   try { sendCustomerConfirmation_(body, id); } catch (e) {}
+  try { sendTelegramNotify_(body, id); } catch (e) {}
 
   return jsonOut_({ ok: true, id: id });
+}
+
+/**
+ * 一次性初始化 Telegram 通知設定 (在 Apps Script 編輯器執行一次即可)
+ * Token / chat_id 寫進 Script Properties,不會出現在 git 紀錄
+ */
+function initTelegramConfig() {
+  PropertiesService.getScriptProperties().setProperties({
+    TELEGRAM_BOT_TOKEN: 'PASTE_TOKEN_HERE',
+    TELEGRAM_CHAT_IDS: 'PASTE_CHAT_ID_HERE'  // 多人用逗號分隔
+  });
+  Logger.log('Telegram 設定已寫入 (記得改成真實值)');
+}
+
+/**
+ * 預約成功時送 Telegram 通知給老闆
+ */
+function sendTelegramNotify_(body, id) {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty('TELEGRAM_BOT_TOKEN');
+  var chatIds = (props.getProperty('TELEGRAM_CHAT_IDS') || '')
+    .split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  if (!token || !chatIds.length) return;
+  var lines = [
+    '🌿 *新預約進來!*',
+    '────────────',
+    '主題:' + body.theme_title,
+    '日期:' + body.date + ' ' + body.time,
+    '人數:' + body.people + ' 人',
+    '姓名:' + body.name,
+    '電話:' + body.phone
+  ];
+  if (body.email) lines.push('Email:' + body.email);
+  if (body.note)  lines.push('備註:' + body.note);
+  lines.push('────────────');
+  lines.push('`' + id + '`');
+  var text = lines.join('\n');
+  var url = 'https://api.telegram.org/bot' + token + '/sendMessage';
+  for (var i = 0; i < chatIds.length; i++) {
+    try {
+      UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ chat_id: chatIds[i], text: text, parse_mode: 'Markdown' }),
+        muteHttpExceptions: true
+      });
+    } catch (e) {}
+  }
 }
 
 function sendCustomerConfirmation_(body, id) {
