@@ -65,6 +65,9 @@ function minBookingDateStr() {
   return toDateStr(new Date(Date.now() + 24 * 60 * 60 * 1000));
 }
 
+// 結束營業日 — 系統不接受 8/31 之後的預約
+const MAX_BOOKING_DATE = "2026-08-31";
+
 function slotsForThemeDate(themeId, dateStr) {
   const d = new Date(dateStr + "T00:00:00");
   const dow = d.getDay();
@@ -155,7 +158,9 @@ function renderStep2() {
     options.push(`<button type="button" class="people-pill ${state.people === i ? "selected" : ""}" data-people="${i}">${i} 人</button>`);
   }
   let closedNote = "";
-  if (state.date && isClosedDay(state.date)) {
+  if (state.date && state.date > MAX_BOOKING_DATE) {
+    closedNote = `<p class="bk-note error"><i data-lucide="x-circle"></i>很抱歉,本店將於 ${MAX_BOOKING_DATE} 結束營業,無法接受該日期之後的預約</p>`;
+  } else if (state.date && isClosedDay(state.date)) {
     closedNote = `<p class="bk-note error"><i data-lucide="x-circle"></i>每週三公休,請另選日期</p>`;
   } else if (state.date && state._allBlocked) {
     closedNote = `<p class="bk-note error"><i data-lucide="x-circle"></i>這天該主題已全部訂滿/暫不開放,請另選日期</p>`;
@@ -166,7 +171,7 @@ function renderStep2() {
     <div class="bk-grid-2">
       <label class="bk-field">
         <span>日期</span>
-        <input type="date" id="dateInput" min="${min}" value="${state.date || ""}">
+        <input type="date" id="dateInput" min="${min}" max="${MAX_BOOKING_DATE}" value="${state.date || ""}">
       </label>
       <div class="bk-field">
         <span>人數(${theme.players})</span>
@@ -181,7 +186,7 @@ function renderStep2() {
     ${closedNote}
     <div class="bk-actions">
       <button class="button ghost" id="backBtn" type="button"><i data-lucide="arrow-left"></i>上一步</button>
-      <button class="button primary" id="nextBtn" type="button" ${state.date && state.people && !isClosedDay(state.date) && !state._allBlocked && !state._loading ? "" : "disabled"}>
+      <button class="button primary" id="nextBtn" type="button" ${state.date && state.people && !isClosedDay(state.date) && !state._allBlocked && !state._loading && state.date <= MAX_BOOKING_DATE ? "" : "disabled"}>
         ${state._loading ? "載入場次中…" : "下一步"} <i data-lucide="arrow-right"></i>
       </button>
     </div>
