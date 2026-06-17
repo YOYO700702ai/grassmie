@@ -54,11 +54,8 @@ function toDateStr(d) {
   return `${y}-${m}-${day}`;
 }
 
-function isClosedDay(dateStr) {
-  // 每週三公休 (getDay: 日0 一1 二2 三3)
-  const d = new Date(dateStr + "T00:00:00");
-  return d.getDay() === 3;
-}
+// 結束營業前每天都營業 (不再公休)
+function isClosedDay(dateStr) { return false; }
 
 // 最早可訂的日期 = 現在 + 24 小時
 function minBookingDateStr() {
@@ -69,9 +66,9 @@ function minBookingDateStr() {
 const MAX_BOOKING_DATE = "2026-08-31";
 
 function slotsForThemeDate(themeId, dateStr) {
+  if (isClosedDay(dateStr)) return []; // 公休 (7-8 月除外)
   const d = new Date(dateStr + "T00:00:00");
   const dow = d.getDay();
-  if (dow === 3) return []; // 週三公休
   const t = THEME_SLOTS[themeId];
   if (!t) return [];
   const isWeekend = dow === 0 || dow === 6;

@@ -66,8 +66,7 @@ async function loadDay() {
   const dow = d.getDay();
   const note = document.getElementById("dateNote");
   const grid = document.getElementById("grid");
-  note.textContent = `${CURRENT_DATE}(週${"日一二三四五六"[dow]})${dow===3?' 公休':''}`;
-  if (dow === 3) { grid.innerHTML = ""; updateBar(); return; }
+  note.textContent = `${CURRENT_DATE}(週${"日一二三四五六"[dow]})`;
   grid.innerHTML = "<tr><td colspan='4' style='padding:16px;text-align:center;background:#fff;border-radius:6px'>載入中…</td></tr>";
 
   const res = await api("GET", { action: "list_bookings", date: CURRENT_DATE, status: "all" });

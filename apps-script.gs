@@ -37,7 +37,10 @@ const HEADERS = [
   'name', 'phone', 'email', 'note', 'status'
 ];
 
-// 每主題各自固定每 2 小時一場;週三公休。平假日場次相同。
+// 結束營業前每天都營業 (週三不再公休,要關特定日期用 close_slot 加 blocked)
+function isClosedDay_(dateStr) { return false; }
+
+// 每主題各自固定每 2 小時一場;平假日場次相同。
 const THEME_SLOTS = {
   daughter: {
     weekday: ['10:00', '12:00', '14:00', '16:00', '18:00', '20:00'],
@@ -67,9 +70,9 @@ const THEMES = [
 ];
 
 function slotsForThemeDate_(themeId, dateStr) {
+  if (isClosedDay_(dateStr)) return [];
   const d = new Date(dateStr + 'T00:00:00');
   const dow = d.getDay();
-  if (dow === 3) return [];
   const t = THEME_SLOTS[themeId];
   if (!t) return [];
   const isWeekend = dow === 0 || dow === 6;
@@ -489,7 +492,7 @@ function rebuildMonthSheet_(yyyymm) {
     const dateStr = yyyymm + '-' + String(d).padStart(2, '0');
     const dt = new Date(y, m - 1, d);
     const dow = dt.getDay();
-    const isClosed = dow === 3;
+    const isClosed = isClosedDay_(dateStr);
     const isWeekend = dow === 0 || dow === 6;
     // 淺色配色
     const dayBg = isClosed ? '#fadcdc'    // 公休:淡粉紅
@@ -1224,9 +1227,7 @@ function rebuildOnsiteMonth_(yyyymm) {
       const slotsBlockEndRow = dayStartRow + ONSITE_MAX_SLOTS - 1;
       if (slotsBlockEndRow > existingLast) break;
       const dateStr = yyyymm + '-' + String(d).padStart(2, '0');
-      const dt = new Date(y, m - 1, d);
-      const dow = dt.getDay();
-      if (dow === 3) continue; // 公休那天什麼都沒填
+      if (isClosedDay_(dateStr)) continue; // 公休那天什麼都沒填
       for (let ti = 0; ti < ONSITE_THEME_ORDER.length; ti++) {
         const themeId = ONSITE_THEME_ORDER[ti];
         const slots = slotsForThemeDate_(themeId, dateStr);
@@ -1311,7 +1312,7 @@ function rebuildOnsiteMonth_(yyyymm) {
     const dateStr = yyyymm + '-' + String(d).padStart(2, '0');
     const dt = new Date(y, m - 1, d);
     const dow = dt.getDay();
-    const isClosed = dow === 3;
+    const isClosed = isClosedDay_(dateStr);
     const wkLabel = '週' + WEEKDAYS_TC[dow];
 
     // dayStartRow = 在最終 sheet 的第幾列(1-indexed)
