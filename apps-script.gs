@@ -160,6 +160,16 @@ function createBooking_(body) {
     if (!body[f]) return jsonOut_({ ok: false, error: '缺少欄位: ' + f });
   }
 
+  // AI 主題週末最少 3 人
+  try {
+    if (body.theme_id === 'ai') {
+      const dow = new Date(body.date + 'T00:00:00').getDay();
+      if ((dow === 0 || dow === 6) && Number(body.people) < 3) {
+        return jsonOut_({ ok: false, error: 'AI 做的密室週末最少 3 人,請調整人數或選擇平日場次' });
+      }
+    }
+  } catch (e) {}
+
   // 擋 24 小時內預約 (網頁前端用;77 / 老闆呼叫時帶 bypass_24h:true 即可繞過)
   if (!body.bypass_24h) {
     try {

@@ -150,8 +150,19 @@ function renderStep2() {
   const min = minBookingDateStr();
   // 解析人數選項範圍
   const range = parsePlayers(theme.players);
+  // AI 主題週末最少 3 人
+  let effectiveMin = range.min;
+  let weekendAiRule = false;
+  if (state.themeId === "ai" && state.date) {
+    const dow = new Date(state.date + "T00:00:00").getDay();
+    if (dow === 0 || dow === 6) {
+      effectiveMin = Math.max(range.min, 3);
+      weekendAiRule = true;
+      if (state.people && state.people < 3) state.people = null; // 清掉不符合的選擇
+    }
+  }
   const options = [];
-  for (let i = range.min; i <= range.max; i++) {
+  for (let i = effectiveMin; i <= range.max; i++) {
     options.push(`<button type="button" class="people-pill ${state.people === i ? "selected" : ""}" data-people="${i}">${i} 人</button>`);
   }
   let closedNote = "";
@@ -171,7 +182,7 @@ function renderStep2() {
         <input type="date" id="dateInput" min="${min}" max="${MAX_BOOKING_DATE}" value="${state.date || ""}">
       </label>
       <div class="bk-field">
-        <span>人數(${theme.players})</span>
+        <span>人數(${theme.players})${weekendAiRule ? " · 週末最少 3 人" : ""}</span>
         <div class="people-pills">${options.join("")}</div>
       </div>
     </div>
